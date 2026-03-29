@@ -7,9 +7,10 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
-  --font-heading: var(--font-sans);
+  --font-sans: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-ibm-plex-mono), ui-monospace, monospace;
+  --font-serif: var(--font-playfair), ui-serif, Georgia, serif;
+  --font-heading: var(--font-serif);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -51,6 +52,15 @@
   --color-klad-primary: var(--klad-primary);
   --color-klad-accent: var(--klad-accent);
   --color-klad-surface: var(--klad-surface);
+
+  /* Klad editorial palette */
+  --color-klad-ink: var(--klad-ink);
+  --color-klad-ink2: var(--klad-ink2);
+  --color-klad-ink3: var(--klad-ink3);
+  --color-klad-paper: var(--klad-paper);
+  --color-klad-paper2: var(--klad-paper2);
+  --color-klad-paper3: var(--klad-paper3);
+  --color-klad-yellow: var(--klad-yellow);
 }
 
 :root {
@@ -81,6 +91,15 @@
   --klad-primary: oklch(0.488 0.243 264.376);
   --klad-accent: oklch(0.637 0.237 15.163);
   --klad-surface: oklch(0.97 0 0);
+
+  /* Editorial palette */
+  --klad-ink: #1a1814;
+  --klad-ink2: #3d3a35;
+  --klad-ink3: #7a756e;
+  --klad-paper: #f7f4ef;
+  --klad-paper2: #ede9e2;
+  --klad-paper3: #e3ddd5;
+  --klad-yellow: #f5e642;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);

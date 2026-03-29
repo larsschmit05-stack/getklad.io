@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
+import { getUser } from "@/lib/auth";
 
-export default function Home() {
-  // TODO: Check auth state and redirect accordingly (Step 3)
-  // For now, redirect to auth/login since no auth is set up yet
-  redirect("/auth/login");
+export default async function Home() {
+  const user = await getUser();
+  redirect(user ? "/projects" : "/auth/login");
 }
