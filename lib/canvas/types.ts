@@ -33,6 +33,7 @@ export type ActiveStyle = {
   strokeStyle: StrokeStyle;
   fillStyle: FillStyle;
   strokeWidth: number;
+  fontSize: number;
 };
 
 // ---------------------------------------------------------------------------

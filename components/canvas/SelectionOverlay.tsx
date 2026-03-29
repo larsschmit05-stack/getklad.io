@@ -25,7 +25,7 @@ export default function SelectionOverlay({
 
   // Briefly hide selection chrome when entering text edit or changing styles.
   useEffect(() => {
-    const shouldPreview = Boolean(editingNodeId || stylePreviewNonce);
+    const shouldPreview = Boolean(stylePreviewNonce);
 
     if (!shouldPreview) {
       const frame = window.requestAnimationFrame(() => {
@@ -42,6 +42,26 @@ export default function SelectionOverlay({
       window.clearTimeout(timer);
     };
   }, [editingNodeId, stylePreviewNonce]);
+
+  if (editingNodeId) {
+    return (
+      <>
+        {marquee && (
+          <rect
+            x={Math.min(marquee.x, marquee.x + marquee.width)}
+            y={Math.min(marquee.y, marquee.y + marquee.height)}
+            width={Math.abs(marquee.width)}
+            height={Math.abs(marquee.height)}
+            fill="rgba(59, 130, 246, 0.1)"
+            stroke="#3b82f6"
+            strokeWidth={1}
+            strokeDasharray="4 2"
+            pointerEvents="none"
+          />
+        )}
+      </>
+    );
+  }
 
   // Don't show handles in preview mode
   if (previewMode) {

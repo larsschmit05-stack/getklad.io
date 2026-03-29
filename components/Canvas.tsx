@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   useReducer,
   useCallback,
@@ -65,6 +66,7 @@ type DragMode =
   | { kind: "pan"; startX: number; startY: number; startCamX: number; startCamY: number }
   | { kind: "move"; startX: number; startY: number; nodeIds: string[] }
   | { kind: "marquee"; startWorldX: number; startWorldY: number }
+  | { kind: "create-text"; worldX: number; worldY: number }
   | {
       kind: "resize";
       handle: ResizeHandle;
@@ -370,6 +372,16 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         return;
       }
 
+      if (tool === "text") {
+        interaction.current.dragMode = {
+          kind: "create-text",
+          worldX: world.x,
+          worldY: world.y,
+        };
+        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+        return;
+      }
+
       if (tool === "freehand") {
         // Start freehand drawing
         const ast = s.activeStyle;
@@ -657,6 +669,27 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         dispatch({ type: "SET_MARQUEE", marquee: null });
       }
 
+      if (mode.kind === "create-text") {
+        const { w, h } = defaultSizeForTool("text");
+        const width = w / cam.zoom;
+        const height = h / cam.zoom;
+
+        dispatch({
+          type: "CREATE_NODE",
+          nodeType: "text",
+          x: mode.worldX,
+          y: mode.worldY - height / 2,
+          width,
+          height,
+          props: defaultPropsForTool("text", s.activeStyle),
+        });
+
+        interaction.current.hasMoved = false;
+        interaction.current.undoPushed = false;
+        interaction.current.dragMode = { kind: "none" };
+        return;
+      }
+
       if (mode.kind === "create-shape") {
         const tool = s.activeTool;
         const ast = s.activeStyle;
@@ -798,13 +831,30 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   // ---------------------------------------------------------------------------
   const handleTextChange = useCallback((nodeId: string, text: string) => {
     dispatch({
-      type: "UPDATE_NODE_PROPS",
+      type: "UPDATE_NODE_TEXT",
       nodeId,
-      props: { text } as Partial<NodeProps>,
+      text,
     });
   }, []);
 
-  const handleTextBlur = useCallback(() => {
+  const handleNodeSizeChange = useCallback(
+    (nodeId: string, width: number, height: number) => {
+      const node = stateRef.current.document.nodes[nodeId];
+      if (!node) return;
+      if (Math.abs(node.width - width) <= 1 && Math.abs(node.height - height) <= 1) {
+        return;
+      }
+      dispatch({ type: "UPDATE_NODE_SIZE", nodeId, width, height });
+    },
+    []
+  );
+
+  const handleTextBlur = useCallback((nodeId: string) => {
+    const node = stateRef.current.document.nodes[nodeId];
+    if (node?.type === "text") {
+      dispatch({ type: "CLEAR_SELECTION" });
+      return;
+    }
     dispatch({ type: "SET_EDITING", nodeId: null });
   }, []);
 
@@ -866,6 +916,48 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       onPointerUp={handlePointerUp}
       onDoubleClick={handleDoubleClick}
     >
+      <Link
+        href="/projects"
+        onPointerDown={(e) => e.stopPropagation()}
+        style={{
+          position: "fixed",
+          top: "20px",
+          left: "24px",
+          zIndex: 1000,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "8px",
+          color: "var(--klad-ink)",
+          textDecoration: "none",
+          userSelect: "none",
+          mixBlendMode: "multiply",
+        }}
+      >
+        <span
+          aria-hidden="true"
+          style={{
+            width: "8px",
+            height: "8px",
+            borderRadius: "999px",
+            backgroundColor: "var(--klad-yellow)",
+            border: "1.5px solid var(--klad-ink)",
+            boxSizing: "border-box",
+            flexShrink: 0,
+          }}
+        />
+        <span
+          style={{
+            fontFamily: "var(--font-ibm-plex-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+            fontSize: "20px",
+            lineHeight: 1,
+            fontWeight: 500,
+            letterSpacing: "-0.02em",
+          }}
+        >
+          klad
+        </span>
+      </Link>
+
       {/* Background */}
       <Background camera={cam} width={size.width} height={size.height} />
 
@@ -907,7 +999,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
                     isSelected={isSelected}
                     isEditing={isEditing}
                     onTextChange={(t) => handleTextChange(id, t)}
-                    onBlur={handleTextBlur}
+                    onSizeChange={(w, h) => handleNodeSizeChange(id, w, h)}
+                    onBlur={() => handleTextBlur(id)}
                   />
                 );
               case "sticky":
@@ -918,7 +1011,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
                     isSelected={isSelected}
                     isEditing={isEditing}
                     onTextChange={(t) => handleTextChange(id, t)}
-                    onBlur={handleTextBlur}
+                    onBlur={() => handleTextBlur(id)}
                   />
                 );
               case "rect":
@@ -1008,7 +1101,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       <SaveIndicator status={saveStatus} />
       <StylePanel
         activeStyle={state.activeStyle}
-        hasSelection={selection.nodeIds.size > 0}
+        hasSelection={selection.nodeIds.size > 0 && !editingNodeId}
+        showTextSizes={selectedNodes.some((node) => node.type === "text")}
         onStyleChange={(partial) => {
           setStylePreviewNonce((value) => value + 1);
           dispatch({ type: "SET_ACTIVE_STYLE", style: partial });
@@ -1069,7 +1163,7 @@ function defaultSizeForTool(tool: Tool): { w: number; h: number } {
 function defaultPropsForTool(tool: Tool, style: ActiveStyle): NodeProps {
   switch (tool) {
     case "text":
-      return { type: "text", text: "", fontSize: 16, color: style.color };
+      return { type: "text", text: "", fontSize: style.fontSize, color: style.color };
     case "sticky":
       return { type: "sticky", text: "", color: "yellow" };
     case "rect":

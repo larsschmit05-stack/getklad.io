@@ -49,7 +49,9 @@ export type CanvasAction =
       width: number;
       height: number;
     }
+  | { type: "UPDATE_NODE_SIZE"; nodeId: string; width: number; height: number }
   | { type: "UPDATE_NODE_PROPS"; nodeId: string; props: Partial<NodeProps> }
+  | { type: "UPDATE_NODE_TEXT"; nodeId: string; text: string }
   | { type: "SET_EDITING"; nodeId: string | null }
   | { type: "SET_ACTIVE_STYLE"; style: Partial<ActiveStyle> }
   | { type: "UNDO" }
@@ -74,6 +76,7 @@ export function createInitialState(
       strokeStyle: "solid",
       fillStyle: "none",
       strokeWidth: 2,
+      fontSize: 24,
     },
   };
 }
@@ -164,7 +167,11 @@ export function canvasReducer(
           nodes: { ...withUndo.document.nodes, [id]: node },
           nodeOrder: [...withUndo.document.nodeOrder, id],
         },
-        selection: { nodeIds: new Set([id]), marquee: null },
+        selection: {
+          nodeIds:
+            node.type === "text" ? new Set<string>() : new Set([id]),
+          marquee: null,
+        },
         activeTool: node.type === "freehand" ? "freehand" : "select",
         editingNodeId:
           node.type === "text" || node.type === "sticky" ? id : null,
@@ -227,6 +234,25 @@ export function canvasReducer(
       };
     }
 
+    case "UPDATE_NODE_SIZE": {
+      const n = state.document.nodes[action.nodeId];
+      if (!n) return state;
+      return {
+        ...state,
+        document: {
+          ...state.document,
+          nodes: {
+            ...state.document.nodes,
+            [action.nodeId]: {
+              ...n,
+              width: action.width,
+              height: action.height,
+            },
+          },
+        },
+      };
+    }
+
     case "UPDATE_NODE_PROPS": {
       const n = state.document.nodes[action.nodeId];
       if (!n) return state;
@@ -246,7 +272,31 @@ export function canvasReducer(
       };
     }
 
+    case "UPDATE_NODE_TEXT": {
+      const n = state.document.nodes[action.nodeId];
+      if (!n || (n.props.type !== "text" && n.props.type !== "sticky")) {
+        return state;
+      }
+      return {
+        ...state,
+        document: {
+          ...state.document,
+          nodes: {
+            ...state.document.nodes,
+            [action.nodeId]: {
+              ...n,
+              props: { ...n.props, text: action.text } as NodeProps,
+            },
+          },
+        },
+      };
+    }
+
     case "SET_EDITING":
+      if (action.nodeId && action.nodeId !== state.editingNodeId) {
+        const withUndo = pushUndo(state);
+        return { ...withUndo, editingNodeId: action.nodeId };
+      }
       return { ...state, editingNodeId: action.nodeId };
 
     case "SET_ACTIVE_STYLE": {
@@ -277,6 +327,9 @@ export function canvasReducer(
         }
         if (action.style.strokeWidth != null && "strokeWidth" in n.props) {
           updatedProps.strokeWidth = action.style.strokeWidth;
+        }
+        if (action.style.fontSize != null && n.props.type === "text") {
+          updatedProps.fontSize = action.style.fontSize;
         }
         nodes[id] = { ...n, props: updatedProps as NodeProps };
       }

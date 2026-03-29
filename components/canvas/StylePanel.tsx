@@ -5,12 +5,21 @@ import { PALETTE, type ActiveStyle, type StrokeStyle, type FillStyle } from "@/l
 interface StylePanelProps {
   activeStyle: ActiveStyle;
   hasSelection: boolean;
+  showTextSizes?: boolean;
   onStyleChange: (style: Partial<ActiveStyle>) => void;
 }
+
+const TEXT_SIZES = [
+  { label: "S", value: 16 },
+  { label: "M", value: 24 },
+  { label: "L", value: 32 },
+  { label: "XL", value: 48 },
+] as const;
 
 export default function StylePanel({
   activeStyle,
   hasSelection,
+  showTextSizes = false,
   onStyleChange,
 }: StylePanelProps) {
   if (!hasSelection) return null;
@@ -39,8 +48,45 @@ export default function StylePanel({
         pointerEvents: "auto",
       }}
     >
+      {showTextSizes && (
+        <div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(4, 1fr)",
+              gap: "6px",
+            }}
+          >
+            {TEXT_SIZES.map((size) => (
+              <button
+                key={size.label}
+                type="button"
+                onClick={() => onStyleChange({ fontSize: size.value })}
+                style={{
+                  padding: "10px 0",
+                  fontSize: "18px",
+                  fontWeight: "700",
+                  color: "var(--klad-ink, #1a1814)",
+                  backgroundColor:
+                    activeStyle.fontSize === size.value
+                      ? "rgba(0,0,0,0.06)"
+                      : "transparent",
+                  border: "none",
+                  borderRadius: "12px",
+                  cursor: "pointer",
+                  transition: "background-color 0.1s",
+                  pointerEvents: "auto",
+                }}
+              >
+                {size.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Color Palette */}
-      <div>
+      <div style={showTextSizes ? { borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" } : undefined}>
         <label
           style={{
             display: "block",
