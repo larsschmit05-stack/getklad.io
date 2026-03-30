@@ -79,6 +79,15 @@ function EllipseNode({
     textarea.setSelectionRange(caret, caret);
   }, [isEditing, shapeType]);
 
+  useLayoutEffect(() => {
+    if (shapeType !== "ellipse" || !isEditing || !editorRef.current) return;
+    const textarea = editorRef.current;
+    const availableHeight = Math.max(node.height - TEXT_BOX_PADDING_Y * 2, 0);
+
+    textarea.style.height = "0px";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, availableHeight)}px`;
+  }, [isEditing, node.height, text, shapeType]);
+
   if (shapeType !== "ellipse") return null;
   void isSelected;
 
@@ -142,7 +151,7 @@ function EllipseNode({
                 textAlign: "center",
                 lineHeight: String(TEXT_LINE_HEIGHT),
                 whiteSpace: "pre-wrap",
-                overflow: "hidden",
+                overflow: "auto",
                 padding: 0,
                 margin: 0,
               }}
