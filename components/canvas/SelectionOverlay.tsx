@@ -198,6 +198,8 @@ function SelectionHandles({
   if (
     node.props.type === "rect" ||
     node.props.type === "ellipse" ||
+    node.props.type === "image" ||
+    node.props.type === "freehand" ||
     node.props.type === "text" ||
     node.props.type === "sticky"
   ) {
@@ -220,6 +222,16 @@ function SelectionHandles({
             cy={node.y + node.height / 2}
             rx={Math.max(0, node.width / 2)}
             ry={Math.max(0, node.height / 2)}
+            fill="none"
+            stroke="#3b82f6"
+            strokeWidth={outlineStroke}
+          />
+        ) : node.props.type === "image" ? (
+          <rect
+            x={node.x + outlineStroke / 2}
+            y={node.y + outlineStroke / 2}
+            width={Math.max(0, node.width - outlineStroke)}
+            height={Math.max(0, node.height - outlineStroke)}
             fill="none"
             stroke="#3b82f6"
             strokeWidth={outlineStroke}

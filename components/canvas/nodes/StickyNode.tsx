@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef } from "react";
+import { memo, useLayoutEffect, useRef } from "react";
 
 import type { CanvasNode } from "@/lib/canvas/types";
 
@@ -19,7 +19,7 @@ const STICKY_COLORS: Record<string, { bg: string; text: string }> = {
   pink: { bg: "#fce7f3", text: "#701a4e" },
 };
 
-export default function StickyNode({
+function StickyNode({
   node,
   isSelected,
   isEditing,
@@ -148,3 +148,13 @@ export default function StickyNode({
     </g>
   );
 }
+
+function areStickyNodePropsEqual(prev: StickyNodeProps, next: StickyNodeProps) {
+  return (
+    prev.node === next.node &&
+    prev.isSelected === next.isSelected &&
+    prev.isEditing === next.isEditing
+  );
+}
+
+export default memo(StickyNode, areStickyNodePropsEqual);

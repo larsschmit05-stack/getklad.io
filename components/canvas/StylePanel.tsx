@@ -5,6 +5,9 @@ import {
   AlignCenterHorizontal,
   AlignEndHorizontal,
   Columns,
+  Bold,
+  Italic,
+  Underline,
 } from "lucide-react";
 import { PALETTE, type ActiveStyle, type StrokeStyle, type FillStyle } from "@/lib/canvas/types";
 import type { AlignmentType } from "@/lib/canvas/reducer";
@@ -13,7 +16,7 @@ interface StylePanelProps {
   activeStyle: ActiveStyle;
   hasSelection: boolean;
   selectedNodeCount?: number;
-  showTextSizes?: boolean;
+  showTextControls?: boolean;
   onStyleChange: (style: Partial<ActiveStyle>) => void;
   onAlign?: (alignment: AlignmentType) => void;
 }
@@ -23,6 +26,13 @@ const TEXT_SIZES = [
   { label: "M", value: 24 },
   { label: "L", value: 32 },
   { label: "XL", value: 48 },
+] as const;
+
+const FONT_FAMILIES = [
+  { label: "Sans", value: "sans" },
+  { label: "Serif", value: "serif" },
+  { label: "Mono", value: "mono" },
+  { label: "Display", value: "display" },
 ] as const;
 
 const ALIGNMENT_BUTTONS: Array<{
@@ -40,7 +50,7 @@ export default function StylePanel({
   activeStyle,
   hasSelection,
   selectedNodeCount = 1,
-  showTextSizes = false,
+  showTextControls = false,
   onStyleChange,
   onAlign,
 }: StylePanelProps) {
@@ -70,8 +80,21 @@ export default function StylePanel({
         pointerEvents: "auto",
       }}
     >
-      {showTextSizes && (
+      {showTextControls && (
         <div>
+          <label
+            style={{
+              display: "block",
+              fontSize: "11px",
+              fontWeight: "600",
+              color: "var(--klad-ink3, #7a756e)",
+              marginBottom: "6px",
+              textTransform: "uppercase",
+              letterSpacing: "0.5px",
+            }}
+          >
+            Text Size
+          </label>
           <div
             style={{
               display: "grid",
@@ -107,8 +130,114 @@ export default function StylePanel({
         </div>
       )}
 
+      {showTextControls && (
+        <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" }}>
+          <label
+            style={{
+              display: "block",
+              fontSize: "11px",
+              fontWeight: "600",
+              color: "var(--klad-ink3, #7a756e)",
+              marginBottom: "6px",
+              textTransform: "uppercase",
+              letterSpacing: "0.5px",
+            }}
+          >
+            Font
+          </label>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "4px" }}>
+            {FONT_FAMILIES.map((font) => (
+              <button
+                key={font.value}
+                type="button"
+                onClick={() => onStyleChange({ fontFamily: font.value })}
+                style={{
+                  height: "64px",
+                  backgroundColor:
+                    activeStyle.fontFamily === font.value
+                      ? "var(--klad-yellow, #f5e642)"
+                      : "transparent",
+                  border: "1px solid var(--klad-ink3, #7a756e)",
+                  borderRadius: "2px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "var(--klad-ink, #1a1814)",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: "22px",
+                    lineHeight: 1,
+                    fontWeight: 600,
+                    fontFamily: getPreviewFontFamily(font.value),
+                  }}
+                >
+                  Aa
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {showTextControls && (
+        <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" }}>
+          <label
+            style={{
+              display: "block",
+              fontSize: "11px",
+              fontWeight: "600",
+              color: "var(--klad-ink3, #7a756e)",
+              marginBottom: "6px",
+              textTransform: "uppercase",
+              letterSpacing: "0.5px",
+            }}
+          >
+            Format
+          </label>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "4px" }}>
+            <button
+              type="button"
+              onClick={() =>
+                onStyleChange({
+                  fontWeight: activeStyle.fontWeight === "bold" ? "normal" : "bold",
+                })
+              }
+              style={formatButtonStyle(activeStyle.fontWeight === "bold")}
+            >
+              <Bold size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                onStyleChange({
+                  fontStyle: activeStyle.fontStyle === "italic" ? "normal" : "italic",
+                })
+              }
+              style={formatButtonStyle(activeStyle.fontStyle === "italic")}
+            >
+              <Italic size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                onStyleChange({
+                  textDecoration:
+                    activeStyle.textDecoration === "underline" ? "none" : "underline",
+                })
+              }
+              style={formatButtonStyle(activeStyle.textDecoration === "underline")}
+            >
+              <Underline size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Color Palette */}
-      <div style={showTextSizes ? { borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" } : undefined}>
+      <div style={showTextControls ? { borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" } : undefined}>
         <label
           style={{
             display: "block",
@@ -134,7 +263,6 @@ export default function StylePanel({
               key={color}
               type="button"
               onClick={() => {
-                console.log("[StylePanel] Color clicked:", color);
                 onStyleChange({ color });
               }}
               title={color}
@@ -157,6 +285,7 @@ export default function StylePanel({
       </div>
 
       {/* Stroke Width */}
+      {!showTextControls && (
       <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" }}>
         <label
           style={{
@@ -177,7 +306,6 @@ export default function StylePanel({
               key={width}
               type="button"
               onClick={() => {
-                console.log("[StylePanel] Stroke width clicked:", width);
                 onStyleChange({ strokeWidth: width });
               }}
               style={{
@@ -201,8 +329,10 @@ export default function StylePanel({
           ))}
         </div>
       </div>
+      )}
 
       {/* Stroke Style */}
+      {!showTextControls && (
       <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" }}>
         <label
           style={{
@@ -223,7 +353,6 @@ export default function StylePanel({
               key={style}
               type="button"
               onClick={() => {
-                console.log("[StylePanel] Stroke style clicked:", style);
                 onStyleChange({ strokeStyle: style });
               }}
               style={{
@@ -248,8 +377,10 @@ export default function StylePanel({
           ))}
         </div>
       </div>
+      )}
 
       {/* Fill Style */}
+      {!showTextControls && (
       <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" }}>
         <label
           style={{
@@ -270,7 +401,6 @@ export default function StylePanel({
               key={style}
               type="button"
               onClick={() => {
-                console.log("[StylePanel] Fill style clicked:", style);
                 onStyleChange({ fillStyle: style });
               }}
               style={{
@@ -295,6 +425,7 @@ export default function StylePanel({
           ))}
         </div>
       </div>
+      )}
 
       {/* Alignment (only for multiple selections) */}
       {selectedNodeCount >= 2 && onAlign && (
@@ -352,4 +483,32 @@ export default function StylePanel({
       )}
     </div>
   );
+}
+
+function formatButtonStyle(active: boolean) {
+  return {
+    height: "32px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: active ? "var(--klad-yellow, #f5e642)" : "transparent",
+    border: "1px solid var(--klad-ink3, #7a756e)",
+    borderRadius: "2px",
+    cursor: "pointer",
+    color: "var(--klad-ink, #1a1814)",
+  } satisfies React.CSSProperties;
+}
+
+function getPreviewFontFamily(fontFamily: "sans" | "serif" | "mono" | "display") {
+  switch (fontFamily) {
+    case "serif":
+      return "var(--font-playfair), ui-serif, Georgia, serif";
+    case "mono":
+      return "var(--font-ibm-plex-mono), ui-monospace, monospace";
+    case "display":
+      return "var(--font-playfair), ui-serif, Georgia, serif";
+    case "sans":
+    default:
+      return "var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif";
+  }
 }

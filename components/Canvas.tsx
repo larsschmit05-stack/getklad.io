@@ -75,6 +75,7 @@ type DragMode =
       origY: number;
       origW: number;
       origH: number;
+      origTextFontSize?: number;
       startWorldX: number;
       startWorldY: number;
     }
@@ -101,6 +102,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   const [arrowPreview, setArrowPreview] = useState<{
     x1: number; y1: number; x2: number; y2: number;
   } | null>(null);
+  const [hoveredResizeHandle, setHoveredResizeHandle] = useState<ResizeHandle | null>(null);
+  const [activeResizeHandle, setActiveResizeHandle] = useState<ResizeHandle | null>(null);
   const spaceDownRef = useRef(false);
   // Mutable interaction state — grouped in a single object to avoid
   // react-hooks/immutability warnings on individual refs captured by callbacks.
@@ -448,9 +451,14 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
               origY: selectedNode.y,
               origW: selectedNode.width,
               origH: selectedNode.height,
+              origTextFontSize:
+                selectedNode.props.type === "text"
+                  ? selectedNode.props.fontSize
+                  : undefined,
               startWorldX: world.x,
               startWorldY: world.y,
             };
+            setActiveResizeHandle(handle);
             (e.target as HTMLElement).setPointerCapture(e.pointerId);
             return;
           }
@@ -521,6 +529,25 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         return;
       }
 
+      if (mode.kind === "none") {
+        if (
+          s.activeTool === "select" &&
+          !s.editingNodeId &&
+          s.selection.nodeIds.size === 1
+        ) {
+          const selectedId = [...s.selection.nodeIds][0];
+          const selectedNode = s.document.nodes[selectedId];
+          const nextHandle = selectedNode
+            ? hitTestResizeHandles(e.clientX, e.clientY, selectedNode, cam)
+            : null;
+          setHoveredResizeHandle((current) =>
+            current === nextHandle ? current : nextHandle
+          );
+        } else {
+          setHoveredResizeHandle((current) => (current === null ? current : null));
+        }
+      }
+
       if (mode.kind === "move") {
         const dx = (e.clientX - mode.startX) / cam.zoom;
         const dy = (e.clientY - mode.startY) / cam.zoom;
@@ -547,30 +574,98 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 
       if (mode.kind === "resize") {
         const world = screenToWorld(e.clientX, e.clientY, cam);
-        const dx = world.x - mode.startWorldX;
-        const dy = world.y - mode.startWorldY;
+        const node = s.document.nodes[mode.nodeId];
+        const anchorX =
+          mode.handle === "top-left" ||
+          mode.handle === "bottom-left" ||
+          mode.handle === "left"
+            ? mode.origX + mode.origW
+            : mode.handle === "top-right" ||
+                mode.handle === "bottom-right" ||
+                mode.handle === "right"
+              ? mode.origX
+              : null;
+        const anchorY =
+          mode.handle === "top-left" ||
+          mode.handle === "top-right" ||
+          mode.handle === "top"
+            ? mode.origY + mode.origH
+            : mode.handle === "bottom-left" ||
+                mode.handle === "bottom-right" ||
+                mode.handle === "bottom"
+              ? mode.origY
+              : null;
 
         let newX = mode.origX;
         let newY = mode.origY;
         let newW = mode.origW;
         let newH = mode.origH;
 
-        if (mode.handle === "bottom-right") {
-          newW = Math.max(20, mode.origW + dx);
-          newH = Math.max(20, mode.origH + dy);
-        } else if (mode.handle === "bottom-left") {
-          newX = mode.origX + dx;
-          newW = Math.max(20, mode.origW - dx);
-          newH = Math.max(20, mode.origH + dy);
-        } else if (mode.handle === "top-right") {
-          newY = mode.origY + dy;
-          newW = Math.max(20, mode.origW + dx);
-          newH = Math.max(20, mode.origH - dy);
-        } else if (mode.handle === "top-left") {
-          newX = mode.origX + dx;
-          newY = mode.origY + dy;
-          newW = Math.max(20, mode.origW - dx);
-          newH = Math.max(20, mode.origH - dy);
+        if (anchorX !== null) {
+          newX = Math.min(anchorX, world.x);
+          newW = Math.abs(world.x - anchorX);
+        }
+
+        if (anchorY !== null) {
+          newY = Math.min(anchorY, world.y);
+          newH = Math.abs(world.y - anchorY);
+        }
+
+        if ((node?.type === "rect" || node?.type === "ellipse") && e.shiftKey) {
+          const ratio = mode.origW / Math.max(mode.origH, 1);
+          const widthDriven =
+            Math.abs(newW - mode.origW) >= Math.abs(newH - mode.origH);
+
+          if (widthDriven) {
+            newH = newW / ratio;
+          } else {
+            newW = newH * ratio;
+          }
+
+          if (anchorX !== null) {
+            newX = anchorX <= world.x ? anchorX : anchorX - newW;
+          }
+          if (anchorY !== null) {
+            newY = anchorY <= world.y ? anchorY : anchorY - newH;
+          }
+        }
+
+        if (node?.type === "image") {
+          const ratio = mode.origW / Math.max(mode.origH, 1);
+          const widthDriven =
+            anchorY === null ||
+            (anchorX !== null &&
+              Math.abs(newW - mode.origW) >= Math.abs(newH - mode.origH));
+
+          if (widthDriven) {
+            newH = newW / ratio;
+          } else {
+            newW = newH * ratio;
+          }
+
+          if (anchorX !== null && anchorY !== null) {
+            newX = anchorX <= world.x ? anchorX : anchorX - newW;
+            newY = anchorY <= world.y ? anchorY : anchorY - newH;
+          } else if (anchorX !== null) {
+            const centerY = mode.origY + mode.origH / 2;
+            newX = anchorX <= world.x ? anchorX : anchorX - newW;
+            newY = centerY - newH / 2;
+          } else if (anchorY !== null) {
+            const centerX = mode.origX + mode.origW / 2;
+            newX = centerX - newW / 2;
+            newY = anchorY <= world.y ? anchorY : anchorY - newH;
+          }
+        }
+
+        let resizeProps: Partial<NodeProps> | undefined;
+        if (node?.type === "text") {
+          const widthRatio = mode.origW === 0 ? 1 : newW / mode.origW;
+          const heightRatio = mode.origH === 0 ? 1 : newH / mode.origH;
+          const scale = Math.max(0.1, Math.min(widthRatio, heightRatio));
+          const baseFontSize = mode.origTextFontSize ?? node.props.fontSize;
+          resizeProps = {
+            fontSize: Math.max(8, Math.round(baseFontSize * scale)),
+          } as Partial<NodeProps>;
         }
 
         dispatch({
@@ -580,6 +675,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           y: newY,
           width: newW,
           height: newH,
+          props: resizeProps,
         });
         return;
       }
@@ -627,18 +723,22 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           if (px > maxX) maxX = px;
           if (py > maxY) maxY = py;
         }
+        const normalizedPoints: [number, number][] = newPoints.map(([px, py]) => [
+          px - minX,
+          py - minY,
+        ]);
         dispatch({
           type: "RESIZE_NODE",
           nodeId: mode.nodeId,
-          x: node.x,
-          y: node.y,
+          x: node.x + minX,
+          y: node.y + minY,
           width: maxX - minX || 1,
           height: maxY - minY || 1,
         });
         dispatch({
           type: "UPDATE_NODE_PROPS",
           nodeId: mode.nodeId,
-          props: { points: newPoints } as Partial<NodeProps>,
+          props: { points: normalizedPoints } as Partial<NodeProps>,
         });
         return;
       }
@@ -646,11 +746,14 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       if (mode.kind === "create-shape") {
         if (s.activeTool === "arrow") {
           const world = screenToWorld(e.clientX, e.clientY, cam);
+          const snapped = e.shiftKey
+            ? snapArrowVector(world.x - mode.startWorldX, world.y - mode.startWorldY)
+            : { dx: world.x - mode.startWorldX, dy: world.y - mode.startWorldY };
           setArrowPreview({
             x1: mode.startWorldX,
             y1: mode.startWorldY,
-            x2: world.x,
-            y2: world.y,
+            x2: mode.startWorldX + snapped.dx,
+            y2: mode.startWorldY + snapped.dy,
           });
         }
         return;
@@ -687,6 +790,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         interaction.current.hasMoved = false;
         interaction.current.undoPushed = false;
         interaction.current.dragMode = { kind: "none" };
+        setActiveResizeHandle(null);
         return;
       }
 
@@ -698,8 +802,11 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 
         if (tool === "arrow") {
           const endWorld = screenToWorld(e.clientX, e.clientY, cam);
-          const dx = endWorld.x - mode.startWorldX;
-          const dy = endWorld.y - mode.startWorldY;
+          const vector = e.shiftKey
+            ? snapArrowVector(endWorld.x - mode.startWorldX, endWorld.y - mode.startWorldY)
+            : { dx: endWorld.x - mode.startWorldX, dy: endWorld.y - mode.startWorldY };
+          const dx = vector.dx;
+          const dy = vector.dy;
           const len = Math.hypot(dx, dy);
           if (len < 5) {
             // Click with no drag — create default horizontal arrow
@@ -739,60 +846,45 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             });
           }
           interaction.current.dragMode = { kind: "none" };
+          setActiveResizeHandle(null);
           // Switch back to select after placing arrow
           dispatch({ type: "SET_TOOL", tool: "select" });
           return;
         }
 
-        // Get actual container dimensions using getBoundingClientRect
-        const container = containerRef.current;
-        if (!container) return;
-        const rect = container.getBoundingClientRect();
-        const containerWidth = rect.width;
-        const containerHeight = rect.height;
+        const endWorld = screenToWorld(e.clientX, e.clientY, cam);
+        const dragRect = normalizeRect(
+          mode.startWorldX,
+          mode.startWorldY,
+          endWorld.x - mode.startWorldX,
+          endWorld.y - mode.startWorldY
+        );
+        let x = dragRect.minX;
+        let y = dragRect.minY;
+        let w = dragRect.maxX - dragRect.minX;
+        let h = dragRect.maxY - dragRect.minY;
 
-        // Center of screen in screen coordinates
-        const screenCenterX = containerWidth / 2;
-        const screenCenterY = containerHeight / 2;
-
-        // Convert to world coordinates
-        const centerWorld = screenToWorld(screenCenterX, screenCenterY, cam);
-
-        // Calculate size based on screen dimensions and zoom level
-        const visibleWorldWidth = containerWidth / cam.zoom;
-        const visibleWorldHeight = containerHeight / cam.zoom;
-
-        let w: number;
-        let h: number;
-
-        switch (tool) {
-          case "text":
-            w = visibleWorldWidth * 0.15;
-            h = visibleWorldHeight * 0.05;
-            break;
-          case "sticky":
-            w = visibleWorldWidth * 0.2;
-            h = visibleWorldWidth * 0.2;
-            break;
-          case "rect":
-            w = visibleWorldWidth * 0.15;
-            h = visibleWorldHeight * 0.1;
-            break;
-          case "ellipse":
-            w = visibleWorldWidth * 0.12;
-            h = visibleWorldWidth * 0.12;
-            break;
-          default:
-            w = visibleWorldWidth * 0.15;
-            h = visibleWorldHeight * 0.1;
+        if (Math.max(w, h) < 4 / cam.zoom) {
+          const defaultSize = defaultSizeForTool(tool);
+          w = defaultSize.w / cam.zoom;
+          h = defaultSize.h / cam.zoom;
+          x = mode.startWorldX - w / 2;
+          y = mode.startWorldY - h / 2;
+        } else if (tool === "rect" || tool === "ellipse" || tool === "sticky") {
+          const side = Math.max(w, h);
+          if (endWorld.x < mode.startWorldX) {
+            x = mode.startWorldX - side;
+          } else {
+            x = mode.startWorldX;
+          }
+          if (endWorld.y < mode.startWorldY) {
+            y = mode.startWorldY - side;
+          } else {
+            y = mode.startWorldY;
+          }
+          w = side;
+          h = side;
         }
-
-        const minWorldSize = 20 / cam.zoom;
-        w = Math.max(w, minWorldSize);
-        h = Math.max(h, minWorldSize);
-
-        const x = centerWorld.x - w / 2;
-        const y = centerWorld.y - h / 2;
 
         dispatch({
           type: "CREATE_NODE",
@@ -812,6 +904,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       interaction.current.hasMoved = false;
       interaction.current.undoPushed = false;
       interaction.current.dragMode = { kind: "none" };
+      setActiveResizeHandle(null);
     },
     []
   );
@@ -978,18 +1071,26 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
     .filter((id) => selection.nodeIds.has(id))
     .map((id) => doc.nodes[id])
     .filter(Boolean) as CanvasNode[];
+  const hasTextSelection = selectedNodes.some((node) => node.type === "text");
 
   return (
     <div
       ref={containerRef}
       className="fixed inset-0 overflow-hidden"
-      style={{ cursor: getCursorForTool(activeTool, spaceDown) }}
+      style={{
+        cursor: getCursorForTool(
+          activeTool,
+          spaceDown,
+          activeResizeHandle ?? hoveredResizeHandle
+        ),
+      }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onDoubleClick={handleDoubleClick}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
+      onPointerLeave={() => setHoveredResizeHandle(null)}
     >
       <Link
         href="/projects"
@@ -1178,7 +1279,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         activeStyle={state.activeStyle}
         hasSelection={selection.nodeIds.size > 0 && !editingNodeId}
         selectedNodeCount={selection.nodeIds.size}
-        showTextSizes={selectedNodes.some((node) => node.type === "text")}
+        showTextControls={hasTextSelection}
         onStyleChange={(partial) => {
           setStylePreviewNonce((value) => value + 1);
           dispatch({ type: "SET_ACTIVE_STYLE", style: partial });
@@ -1208,8 +1309,13 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function getCursorForTool(tool: Tool, spaceDown: boolean): string {
+function getCursorForTool(
+  tool: Tool,
+  spaceDown: boolean,
+  resizeHandle: ResizeHandle | null = null
+): string {
   if (spaceDown) return "grab";
+  if (resizeHandle) return getCursorForResizeHandle(resizeHandle);
   switch (tool) {
     case "select":
       return "default";
@@ -1228,6 +1334,39 @@ function getCursorForTool(tool: Tool, spaceDown: boolean): string {
   }
 }
 
+function getCursorForResizeHandle(handle: ResizeHandle): string {
+  switch (handle) {
+    case "top-left":
+    case "bottom-right":
+      return "nwse-resize";
+    case "top-right":
+    case "bottom-left":
+      return "nesw-resize";
+    case "left":
+    case "right":
+      return "ew-resize";
+    case "top":
+    case "bottom":
+      return "ns-resize";
+    default:
+      return "default";
+  }
+}
+
+function snapArrowVector(dx: number, dy: number): { dx: number; dy: number } {
+  const length = Math.hypot(dx, dy);
+  if (length === 0) return { dx: 0, dy: 0 };
+
+  const step = Math.PI / 4;
+  const angle = Math.atan2(dy, dx);
+  const snappedAngle = Math.round(angle / step) * step;
+
+  return {
+    dx: Math.cos(snappedAngle) * length,
+    dy: Math.sin(snappedAngle) * length,
+  };
+}
+
 function defaultSizeForTool(tool: Tool): { w: number; h: number } {
   switch (tool) {
     case "text":
@@ -1235,7 +1374,7 @@ function defaultSizeForTool(tool: Tool): { w: number; h: number } {
     case "sticky":
       return { w: 200, h: 200 };
     case "rect":
-      return { w: 150, h: 100 };
+      return { w: 150, h: 150 };
     case "ellipse":
       return { w: 120, h: 120 };
     default:
@@ -1246,7 +1385,16 @@ function defaultSizeForTool(tool: Tool): { w: number; h: number } {
 function defaultPropsForTool(tool: Tool, style: ActiveStyle): NodeProps {
   switch (tool) {
     case "text":
-      return { type: "text", text: "", fontSize: style.fontSize, color: style.color };
+      return {
+        type: "text",
+        text: "",
+        fontSize: style.fontSize,
+        color: style.color,
+        fontFamily: style.fontFamily,
+        fontWeight: style.fontWeight,
+        fontStyle: style.fontStyle,
+        textDecoration: style.textDecoration,
+      };
     case "sticky":
       return { type: "sticky", text: "", color: "yellow" };
     case "rect":

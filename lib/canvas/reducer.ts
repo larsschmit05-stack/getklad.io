@@ -58,6 +58,7 @@ export type CanvasAction =
       y: number;
       width: number;
       height: number;
+      props?: Partial<NodeProps>;
     }
   | { type: "UPDATE_NODE_SIZE"; nodeId: string; width: number; height: number }
   | { type: "UPDATE_NODE_PROPS"; nodeId: string; props: Partial<NodeProps> }
@@ -88,6 +89,10 @@ export function createInitialState(
       fillStyle: "none",
       strokeWidth: 2,
       fontSize: 24,
+      fontFamily: "sans",
+      fontWeight: "normal",
+      fontStyle: "normal",
+      textDecoration: "none",
     },
   };
 }
@@ -239,6 +244,9 @@ export function canvasReducer(
               y: action.y,
               width: action.width,
               height: action.height,
+              props: action.props
+                ? ({ ...n.props, ...action.props } as NodeProps)
+                : n.props,
             },
           },
         },
@@ -341,6 +349,18 @@ export function canvasReducer(
         }
         if (action.style.fontSize != null && n.props.type === "text") {
           updatedProps.fontSize = action.style.fontSize;
+        }
+        if (action.style.fontFamily != null && n.props.type === "text") {
+          updatedProps.fontFamily = action.style.fontFamily;
+        }
+        if (action.style.fontWeight != null && n.props.type === "text") {
+          updatedProps.fontWeight = action.style.fontWeight;
+        }
+        if (action.style.fontStyle != null && n.props.type === "text") {
+          updatedProps.fontStyle = action.style.fontStyle;
+        }
+        if (action.style.textDecoration != null && n.props.type === "text") {
+          updatedProps.textDecoration = action.style.textDecoration;
         }
         nodes[id] = { ...n, props: updatedProps as NodeProps };
       }
