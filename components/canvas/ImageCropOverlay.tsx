@@ -165,6 +165,10 @@ export default function ImageCropOverlay({
   }, [onConfirm]);
 
   const handleScreenSize = 10;
+  const edgeHandleLength = 18;
+  const edgeHandleThickness = 6;
+  const cornerHandleSize = 8;
+  const edgeHitSize = 20;
 
   return (
     <div
@@ -234,7 +238,7 @@ export default function ImageCropOverlay({
       </svg>
 
       {/* Top-left corner */}
-      <svg
+      <div
         onPointerDown={handlePointerDown("tl")}
         style={{
           position: "absolute",
@@ -244,15 +248,24 @@ export default function ImageCropOverlay({
           height: `${handleScreenSize * 2 * zoom}px`,
           cursor: "nwse-resize",
           pointerEvents: "auto",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
-        viewBox="0 0 20 20"
       >
-        <line x1="10" y1="0" x2="10" y2="10" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
-        <line x1="0" y1="10" x2="10" y2="10" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
-      </svg>
+        <div
+          style={{
+            width: `${cornerHandleSize}px`,
+            height: `${cornerHandleSize}px`,
+            borderRadius: "2px",
+            backgroundColor: "#2563eb",
+            boxShadow: "0 0 0 1px rgba(37, 99, 235, 0.12)",
+          }}
+        />
+      </div>
 
       {/* Top-right corner */}
-      <svg
+      <div
         onPointerDown={handlePointerDown("tr")}
         style={{
           position: "absolute",
@@ -262,15 +275,24 @@ export default function ImageCropOverlay({
           height: `${handleScreenSize * 2 * zoom}px`,
           cursor: "nesw-resize",
           pointerEvents: "auto",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
-        viewBox="0 0 20 20"
       >
-        <line x1="10" y1="0" x2="10" y2="10" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
-        <line x1="10" y1="10" x2="20" y2="10" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
-      </svg>
+        <div
+          style={{
+            width: `${cornerHandleSize}px`,
+            height: `${cornerHandleSize}px`,
+            borderRadius: "2px",
+            backgroundColor: "#2563eb",
+            boxShadow: "0 0 0 1px rgba(37, 99, 235, 0.12)",
+          }}
+        />
+      </div>
 
       {/* Bottom-left corner */}
-      <svg
+      <div
         onPointerDown={handlePointerDown("bl")}
         style={{
           position: "absolute",
@@ -280,15 +302,24 @@ export default function ImageCropOverlay({
           height: `${handleScreenSize * 2 * zoom}px`,
           cursor: "nesw-resize",
           pointerEvents: "auto",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
-        viewBox="0 0 20 20"
       >
-        <line x1="10" y1="10" x2="10" y2="20" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
-        <line x1="0" y1="10" x2="10" y2="10" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
-      </svg>
+        <div
+          style={{
+            width: `${cornerHandleSize}px`,
+            height: `${cornerHandleSize}px`,
+            borderRadius: "2px",
+            backgroundColor: "#2563eb",
+            boxShadow: "0 0 0 1px rgba(37, 99, 235, 0.12)",
+          }}
+        />
+      </div>
 
       {/* Bottom-right corner */}
-      <svg
+      <div
         onPointerDown={handlePointerDown("br")}
         style={{
           position: "absolute",
@@ -298,76 +329,129 @@ export default function ImageCropOverlay({
           height: `${handleScreenSize * 2 * zoom}px`,
           cursor: "nwse-resize",
           pointerEvents: "auto",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
-        viewBox="0 0 20 20"
       >
-        <line x1="10" y1="10" x2="10" y2="20" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
-        <line x1="10" y1="10" x2="20" y2="10" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
-      </svg>
+        <div
+          style={{
+            width: `${cornerHandleSize}px`,
+            height: `${cornerHandleSize}px`,
+            borderRadius: "2px",
+            backgroundColor: "#2563eb",
+            boxShadow: "0 0 0 1px rgba(37, 99, 235, 0.12)",
+          }}
+        />
+      </div>
 
       {/* Top handle */}
       <div
         onPointerDown={handlePointerDown("t")}
         style={{
           position: "absolute",
-          left: `${(cropBox.x + 30) * zoom}px`,
-          right: `${(nodeWidth - cropBox.x - cropBox.width + 30) * zoom}px`,
-          top: `${(cropBox.y - 5) * zoom}px`,
-          height: `${10 * zoom}px`,
-          backgroundColor: "#2563eb",
+          left: `${(cropBox.x + cropBox.width / 2) * zoom - edgeHitSize / 2}px`,
+          top: `${cropBox.y * zoom - edgeHitSize / 2}px`,
+          width: `${edgeHitSize}px`,
+          height: `${edgeHitSize}px`,
           cursor: "ns-resize",
           pointerEvents: "auto",
-          minWidth: "30px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
-      />
+      >
+        <div
+          style={{
+            width: `${edgeHandleLength}px`,
+            height: `${edgeHandleThickness}px`,
+            borderRadius: "999px",
+            backgroundColor: "#2563eb",
+            boxShadow: "0 0 0 1px rgba(37, 99, 235, 0.12)",
+          }}
+        />
+      </div>
 
       {/* Bottom handle */}
       <div
         onPointerDown={handlePointerDown("b")}
         style={{
           position: "absolute",
-          left: `${(cropBox.x + 30) * zoom}px`,
-          right: `${(nodeWidth - cropBox.x - cropBox.width + 30) * zoom}px`,
-          bottom: `${(nodeHeight - cropBox.y - cropBox.height - 5) * zoom}px`,
-          height: `${10 * zoom}px`,
-          backgroundColor: "#2563eb",
+          left: `${(cropBox.x + cropBox.width / 2) * zoom - edgeHitSize / 2}px`,
+          top: `${(cropBox.y + cropBox.height) * zoom - edgeHitSize / 2}px`,
+          width: `${edgeHitSize}px`,
+          height: `${edgeHitSize}px`,
           cursor: "ns-resize",
           pointerEvents: "auto",
-          minWidth: "30px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
-      />
+      >
+        <div
+          style={{
+            width: `${edgeHandleLength}px`,
+            height: `${edgeHandleThickness}px`,
+            borderRadius: "999px",
+            backgroundColor: "#2563eb",
+            boxShadow: "0 0 0 1px rgba(37, 99, 235, 0.12)",
+          }}
+        />
+      </div>
 
       {/* Left handle */}
       <div
         onPointerDown={handlePointerDown("l")}
         style={{
           position: "absolute",
-          left: `${(cropBox.x - 5) * zoom}px`,
-          top: `${(cropBox.y + 30) * zoom}px`,
-          bottom: `${(nodeHeight - cropBox.y - cropBox.height + 30) * zoom}px`,
-          width: `${10 * zoom}px`,
-          backgroundColor: "#2563eb",
+          left: `${cropBox.x * zoom - edgeHitSize / 2}px`,
+          top: `${(cropBox.y + cropBox.height / 2) * zoom - edgeHitSize / 2}px`,
+          width: `${edgeHitSize}px`,
+          height: `${edgeHitSize}px`,
           cursor: "ew-resize",
           pointerEvents: "auto",
-          minHeight: "30px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
-      />
+      >
+        <div
+          style={{
+            width: `${edgeHandleThickness}px`,
+            height: `${edgeHandleLength}px`,
+            borderRadius: "999px",
+            backgroundColor: "#2563eb",
+            boxShadow: "0 0 0 1px rgba(37, 99, 235, 0.12)",
+          }}
+        />
+      </div>
 
       {/* Right handle */}
       <div
         onPointerDown={handlePointerDown("r")}
         style={{
           position: "absolute",
-          right: `${(nodeWidth - cropBox.x - cropBox.width - 5) * zoom}px`,
-          top: `${(cropBox.y + 30) * zoom}px`,
-          bottom: `${(nodeHeight - cropBox.y - cropBox.height + 30) * zoom}px`,
-          width: `${10 * zoom}px`,
-          backgroundColor: "#2563eb",
+          left: `${(cropBox.x + cropBox.width) * zoom - edgeHitSize / 2}px`,
+          top: `${(cropBox.y + cropBox.height / 2) * zoom - edgeHitSize / 2}px`,
+          width: `${edgeHitSize}px`,
+          height: `${edgeHitSize}px`,
           cursor: "ew-resize",
           pointerEvents: "auto",
-          minHeight: "30px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
-      />
+      >
+        <div
+          style={{
+            width: `${edgeHandleThickness}px`,
+            height: `${edgeHandleLength}px`,
+            borderRadius: "999px",
+            backgroundColor: "#2563eb",
+            boxShadow: "0 0 0 1px rgba(37, 99, 235, 0.12)",
+          }}
+        />
+      </div>
     </div>
   );
 }
