@@ -40,6 +40,7 @@ import Toolbar from "./canvas/Toolbar";
 import ZoomControls from "./canvas/ZoomControls";
 import SaveIndicator from "./canvas/SaveIndicator";
 import StylePanel from "./canvas/StylePanel";
+import AlignmentToolbar from "./canvas/AlignmentToolbar";
 import TextNode from "./canvas/nodes/TextNode";
 import StickyNode from "./canvas/nodes/StickyNode";
 import RectNode from "./canvas/nodes/RectNode";
@@ -859,18 +860,15 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Image upload
+  // Image upload helper
   // ---------------------------------------------------------------------------
-  const handleImageFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
+  const createImageNodeFromFile = useCallback(
+    (file: File, worldX: number, worldY: number) => {
       const reader = new FileReader();
       reader.onload = (ev) => {
         const src = ev.target?.result as string;
         const img = new window.Image();
         img.onload = () => {
-          const pos = imageClickPosRef.current ?? { x: 0, y: 0 };
           const maxW = 400;
           const ratio = Math.min(maxW / img.width, 1);
           const w = img.width * ratio;
@@ -878,8 +876,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           dispatch({
             type: "CREATE_NODE",
             nodeType: "image",
-            x: pos.x - w / 2,
-            y: pos.y - h / 2,
+            x: worldX - w / 2,
+            y: worldY - h / 2,
             width: w,
             height: h,
             props: { type: "image", src, alt: file.name },
@@ -890,9 +888,85 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         img.src = src;
       };
       reader.readAsDataURL(file);
-      e.target.value = "";
     },
     []
+  );
+
+  // ---------------------------------------------------------------------------
+  // Image upload
+  // ---------------------------------------------------------------------------
+  const handleImageFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const pos = imageClickPosRef.current ?? { x: 0, y: 0 };
+      createImageNodeFromFile(file, pos.x, pos.y);
+      e.target.value = "";
+    },
+    [createImageNodeFromFile]
+  );
+
+  // ---------------------------------------------------------------------------
+  // Paste handler
+  // ---------------------------------------------------------------------------
+  const handlePaste = useCallback(
+    (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            // Get screen center and convert to world
+            const container = containerRef.current;
+            if (!container) return;
+            const rect = container.getBoundingClientRect();
+            const screenCenterX = rect.width / 2;
+            const screenCenterY = rect.height / 2;
+            const world = screenToWorld(screenCenterX, screenCenterY, stateRef.current.document.camera);
+            createImageNodeFromFile(file, world.x, world.y);
+          }
+        }
+      }
+    },
+    [createImageNodeFromFile]
+  );
+
+  useEffect(() => {
+    document.addEventListener("paste", handlePaste);
+    return () => document.removeEventListener("paste", handlePaste);
+  }, [handlePaste]);
+
+  // ---------------------------------------------------------------------------
+  // Drag-and-drop handler
+  // ---------------------------------------------------------------------------
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    const hasImage = Array.from(e.dataTransfer.items || []).some((item) =>
+      item.type.startsWith("image/")
+    );
+    if (hasImage) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    }
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      const files = e.dataTransfer.files;
+      if (!files) return;
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.type.startsWith("image/")) {
+          e.preventDefault();
+          // Get drop position in world coordinates
+          const world = screenToWorld(e.clientX, e.clientY, stateRef.current.document.camera);
+          createImageNodeFromFile(file, world.x, world.y);
+        }
+      }
+    },
+    [createImageNodeFromFile]
   );
 
   // ---------------------------------------------------------------------------
@@ -915,6 +989,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onDoubleClick={handleDoubleClick}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
     >
       <Link
         href="/projects"
@@ -1106,6 +1182,16 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         onStyleChange={(partial) => {
           setStylePreviewNonce((value) => value + 1);
           dispatch({ type: "SET_ACTIVE_STYLE", style: partial });
+        }}
+      />
+      <AlignmentToolbar
+        selectedNodeIds={Array.from(selection.nodeIds)}
+        onAlign={(alignment) => {
+          dispatch({
+            type: "ALIGN_NODES",
+            nodeIds: Array.from(selection.nodeIds),
+            alignment,
+          });
         }}
       />
 

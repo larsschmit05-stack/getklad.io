@@ -91,6 +91,11 @@ export default function SelectionOverlay({
         <SelectionHandles node={selectedNodes[0]} camera={camera} />
       )}
 
+      {/* Multi-select bounding box */}
+      {selectedNodes.length > 1 && (
+        <MultiSelectBoundingBox nodes={selectedNodes} camera={camera} />
+      )}
+
       {/* Marquee selection rectangle */}
       {marquee && (
         <rect
@@ -264,4 +269,45 @@ function getCursorForHandle(handle: string): string {
     default:
       return "default";
   }
+}
+
+function MultiSelectBoundingBox({
+  nodes,
+  camera,
+}: {
+  nodes: CanvasNode[];
+  camera: Camera;
+}) {
+  if (nodes.length === 0) return null;
+
+  // Compute union bounding box
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+
+  for (const node of nodes) {
+    minX = Math.min(minX, node.x);
+    minY = Math.min(minY, node.y);
+    maxX = Math.max(maxX, node.x + node.width);
+    maxY = Math.max(maxY, node.y + node.height);
+  }
+
+  const width = maxX - minX;
+  const height = maxY - minY;
+  const strokeWidth = Math.max(0.5, 1.5 / camera.zoom);
+
+  return (
+    <rect
+      x={minX}
+      y={minY}
+      width={width}
+      height={height}
+      fill="none"
+      stroke="#3b82f6"
+      strokeWidth={strokeWidth}
+      strokeDasharray="4 2"
+      pointerEvents="none"
+    />
+  );
 }

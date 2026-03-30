@@ -19,6 +19,16 @@ const MAX_UNDO = 50;
 // Actions
 // ---------------------------------------------------------------------------
 
+export type AlignmentType =
+  | "left"
+  | "center-h"
+  | "right"
+  | "top"
+  | "center-v"
+  | "bottom"
+  | "distribute-h"
+  | "distribute-v";
+
 export type CanvasAction =
   | { type: "SET_DOCUMENT"; document: CanvasDocument }
   | { type: "SET_CAMERA"; camera: Camera }
@@ -54,6 +64,7 @@ export type CanvasAction =
   | { type: "UPDATE_NODE_TEXT"; nodeId: string; text: string }
   | { type: "SET_EDITING"; nodeId: string | null }
   | { type: "SET_ACTIVE_STYLE"; style: Partial<ActiveStyle> }
+  | { type: "ALIGN_NODES"; nodeIds: string[]; alignment: AlignmentType }
   | { type: "UNDO" }
   | { type: "REDO" };
 
@@ -336,6 +347,104 @@ export function canvasReducer(
       return {
         ...withUndo,
         activeStyle: newStyle,
+        document: { ...withUndo.document, nodes },
+      };
+    }
+
+    case "ALIGN_NODES": {
+      if (action.nodeIds.length < 2) return state;
+      const withUndo = pushUndo(state);
+      const nodes = { ...withUndo.document.nodes };
+      const toAlign = action.nodeIds
+        .map((id) => ({ id, node: nodes[id] }))
+        .filter((entry): entry is { id: string; node: CanvasNode } => !!entry.node);
+
+      if (toAlign.length < 2) return state;
+
+      const alignment = action.alignment;
+
+      // Compute bounding box
+      let minX = Infinity,
+        minY = Infinity,
+        maxX = -Infinity,
+        maxY = -Infinity;
+      for (const { node } of toAlign) {
+        minX = Math.min(minX, node.x);
+        minY = Math.min(minY, node.y);
+        maxX = Math.max(maxX, node.x + node.width);
+        maxY = Math.max(maxY, node.y + node.height);
+      }
+
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+
+      // Apply alignment
+      for (const { id, node } of toAlign) {
+        let newX = node.x;
+        let newY = node.y;
+
+        switch (alignment) {
+          case "left":
+            newX = minX;
+            break;
+          case "center-h":
+            newX = centerX - node.width / 2;
+            break;
+          case "right":
+            newX = maxX - node.width;
+            break;
+          case "top":
+            newY = minY;
+            break;
+          case "center-v":
+            newY = centerY - node.height / 2;
+            break;
+          case "bottom":
+            newY = maxY - node.height;
+            break;
+          case "distribute-h": {
+            // Sort by x position and distribute evenly
+            const sorted = toAlign.sort((a, b) => a.node.x - b.node.x);
+            const totalGap = maxX - minX - sorted.reduce((sum, { node: n }) => sum + n.width, 0);
+            const gap = sorted.length > 1 ? totalGap / (sorted.length - 1) : 0;
+            let currentX = minX;
+            if (id === sorted[0].id) {
+              newX = currentX;
+            } else {
+              const idx = sorted.findIndex((entry) => entry.id === id);
+              currentX = minX;
+              for (let i = 0; i < idx; i++) {
+                currentX += sorted[i].node.width + gap;
+              }
+              newX = currentX;
+            }
+            break;
+          }
+          case "distribute-v": {
+            // Sort by y position and distribute evenly
+            const sorted = toAlign.sort((a, b) => a.node.y - b.node.y);
+            const totalGap = maxY - minY - sorted.reduce((sum, { node: n }) => sum + n.height, 0);
+            const gap = sorted.length > 1 ? totalGap / (sorted.length - 1) : 0;
+            let currentY = minY;
+            if (id === sorted[0].id) {
+              newY = currentY;
+            } else {
+              const idx = sorted.findIndex((entry) => entry.id === id);
+              currentY = minY;
+              for (let i = 0; i < idx; i++) {
+                currentY += sorted[i].node.height + gap;
+              }
+              newY = currentY;
+            }
+            break;
+          }
+        }
+
+        nodes[id] = { ...node, x: newX, y: newY };
+      }
+
+      return {
+        ...withUndo,
         document: { ...withUndo.document, nodes },
       };
     }

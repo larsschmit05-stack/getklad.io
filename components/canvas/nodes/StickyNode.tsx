@@ -115,7 +115,7 @@ export default function StickyNode({
             style={{
               width: "100%",
               height: "100%",
-              display: "block",
+              display: "flex",
               boxSizing: "border-box",
               color: colors.text,
               fontSize: "14px",
@@ -128,7 +128,6 @@ export default function StickyNode({
               overflow: "hidden",
               textAlign: "center",
               lineHeight: "1.35",
-              display: "flex",
               alignItems: "center",
               justifyContent: "center",
             }}
