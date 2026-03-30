@@ -78,6 +78,11 @@ export type TextProps = {
 export type StickyProps = {
   text: string;
   color: string; // background color
+  fontSize?: number;
+  fontFamily?: "sans" | "serif" | "mono" | "display";
+  fontWeight?: "normal" | "bold";
+  fontStyle?: "normal" | "italic";
+  textDecoration?: "none" | "underline";
 };
 
 export type RectProps = {
@@ -86,6 +91,12 @@ export type RectProps = {
   strokeWidth: number;
   strokeStyle?: StrokeStyle;
   fillStyle?: FillStyle;
+  text?: string;
+  fontSize?: number;
+  fontFamily?: "sans" | "serif" | "mono" | "display";
+  fontWeight?: "normal" | "bold";
+  fontStyle?: "normal" | "italic";
+  textDecoration?: "none" | "underline";
 };
 
 export type EllipseProps = {
@@ -94,6 +105,12 @@ export type EllipseProps = {
   strokeWidth: number;
   strokeStyle?: StrokeStyle;
   fillStyle?: FillStyle;
+  text?: string;
+  fontSize?: number;
+  fontFamily?: "sans" | "serif" | "mono" | "display";
+  fontWeight?: "normal" | "bold";
+  fontStyle?: "normal" | "italic";
+  textDecoration?: "none" | "underline";
 };
 
 export type FreehandProps = {

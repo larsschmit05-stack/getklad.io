@@ -17,6 +17,7 @@ interface StylePanelProps {
   hasSelection: boolean;
   selectedNodeCount?: number;
   showTextControls?: boolean;
+  showShapeTextControls?: boolean;
   showImageControls?: boolean;
   onStyleChange: (style: Partial<ActiveStyle>) => void;
   onAlign?: (alignment: AlignmentType) => void;
@@ -52,6 +53,7 @@ export default function StylePanel({
   hasSelection,
   selectedNodeCount = 1,
   showTextControls = false,
+  showShapeTextControls = false,
   showImageControls = false,
   onStyleChange,
   onAlign,
@@ -147,30 +149,31 @@ export default function StylePanel({
           >
             Font
           </label>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "4px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "6px" }}>
             {FONT_FAMILIES.map((font) => (
               <button
                 key={font.value}
                 type="button"
                 onClick={() => onStyleChange({ fontFamily: font.value })}
                 style={{
-                  height: "64px",
+                  padding: "10px 0",
                   backgroundColor:
                     activeStyle.fontFamily === font.value
-                      ? "var(--klad-yellow, #f5e642)"
+                      ? "rgba(0,0,0,0.06)"
                       : "transparent",
-                  border: "1px solid var(--klad-ink3, #7a756e)",
-                  borderRadius: "2px",
+                  border: "none",
+                  borderRadius: "12px",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   color: "var(--klad-ink, #1a1814)",
+                  transition: "background-color 0.1s",
                 }}
               >
                 <span
                   style={{
-                    fontSize: "22px",
+                    fontSize: "18px",
                     lineHeight: 1,
                     fontWeight: 600,
                     fontFamily: getPreviewFontFamily(font.value),
@@ -315,7 +318,7 @@ export default function StylePanel({
       )}
 
       {/* Stroke Width */}
-      {!showTextControls && !showImageControls && (
+      {(!showTextControls || showShapeTextControls) && !showImageControls && (
       <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" }}>
         <label
           style={{
@@ -362,7 +365,7 @@ export default function StylePanel({
       )}
 
       {/* Stroke Style */}
-      {!showTextControls && !showImageControls && (
+      {(!showTextControls || showShapeTextControls) && !showImageControls && (
       <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" }}>
         <label
           style={{
@@ -410,7 +413,7 @@ export default function StylePanel({
       )}
 
       {/* Fill Style */}
-      {!showTextControls && !showImageControls && (
+      {(!showTextControls || showShapeTextControls) && !showImageControls && (
       <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" }}>
         <label
           style={{

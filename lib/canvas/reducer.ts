@@ -294,7 +294,13 @@ export function canvasReducer(
 
     case "UPDATE_NODE_TEXT": {
       const n = state.document.nodes[action.nodeId];
-      if (!n || (n.props.type !== "text" && n.props.type !== "sticky")) {
+      if (
+        !n ||
+        (n.props.type !== "text" &&
+          n.props.type !== "sticky" &&
+          n.props.type !== "rect" &&
+          n.props.type !== "ellipse")
+      ) {
         return state;
       }
       return {
@@ -332,7 +338,7 @@ export function canvasReducer(
         if (!n) continue;
         const updatedProps: Record<string, unknown> = { ...n.props };
         if ("color" in action.style) {
-          if (n.props.type === "text" || n.props.type === "sticky") {
+          if (n.props.type === "text") {
             updatedProps.color = action.style.color;
           } else if ("stroke" in n.props) {
             updatedProps.stroke = action.style.color;
@@ -351,19 +357,49 @@ export function canvasReducer(
         if (action.style.opacity != null && n.props.type === "image") {
           updatedProps.opacity = action.style.opacity;
         }
-        if (action.style.fontSize != null && n.props.type === "text") {
+        if (
+          action.style.fontSize != null &&
+          (n.props.type === "text" ||
+            n.props.type === "sticky" ||
+            n.props.type === "rect" ||
+            n.props.type === "ellipse")
+        ) {
           updatedProps.fontSize = action.style.fontSize;
         }
-        if (action.style.fontFamily != null && n.props.type === "text") {
+        if (
+          action.style.fontFamily != null &&
+          (n.props.type === "text" ||
+            n.props.type === "sticky" ||
+            n.props.type === "rect" ||
+            n.props.type === "ellipse")
+        ) {
           updatedProps.fontFamily = action.style.fontFamily;
         }
-        if (action.style.fontWeight != null && n.props.type === "text") {
+        if (
+          action.style.fontWeight != null &&
+          (n.props.type === "text" ||
+            n.props.type === "sticky" ||
+            n.props.type === "rect" ||
+            n.props.type === "ellipse")
+        ) {
           updatedProps.fontWeight = action.style.fontWeight;
         }
-        if (action.style.fontStyle != null && n.props.type === "text") {
+        if (
+          action.style.fontStyle != null &&
+          (n.props.type === "text" ||
+            n.props.type === "sticky" ||
+            n.props.type === "rect" ||
+            n.props.type === "ellipse")
+        ) {
           updatedProps.fontStyle = action.style.fontStyle;
         }
-        if (action.style.textDecoration != null && n.props.type === "text") {
+        if (
+          action.style.textDecoration != null &&
+          (n.props.type === "text" ||
+            n.props.type === "sticky" ||
+            n.props.type === "rect" ||
+            n.props.type === "ellipse")
+        ) {
           updatedProps.textDecoration = action.style.textDecoration;
         }
         nodes[id] = { ...n, props: updatedProps as NodeProps };

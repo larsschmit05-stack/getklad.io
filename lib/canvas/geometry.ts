@@ -123,6 +123,36 @@ export function pointInNode(
     const projY = y1 + t * dy;
     return Math.hypot(worldX - projX, worldY - projY) < 8 + hitPadding;
   }
+  if (node.props.type === "freehand") {
+    const threshold = Math.max(node.props.strokeWidth / 2 + hitPadding, 8 + hitPadding);
+    const points = node.props.points;
+    if (points.length === 1) {
+      return (
+        Math.hypot(worldX - (node.x + points[0][0]), worldY - (node.y + points[0][1])) <
+        threshold
+      );
+    }
+    for (let i = 0; i < points.length - 1; i++) {
+      const ax = node.x + points[i][0];
+      const ay = node.y + points[i][1];
+      const bx = node.x + points[i + 1][0];
+      const by = node.y + points[i + 1][1];
+      const dx = bx - ax;
+      const dy = by - ay;
+      const lenSq = dx * dx + dy * dy;
+      if (lenSq === 0) continue;
+      const t = Math.max(
+        0,
+        Math.min(1, ((worldX - ax) * dx + (worldY - ay) * dy) / lenSq)
+      );
+      const projX = ax + t * dx;
+      const projY = ay + t * dy;
+      if (Math.hypot(worldX - projX, worldY - projY) < threshold) {
+        return true;
+      }
+    }
+    return false;
+  }
   const b = getNodeBounds(node);
   return (
     worldX >= b.minX - hitPadding &&

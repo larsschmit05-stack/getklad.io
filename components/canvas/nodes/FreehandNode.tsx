@@ -16,7 +16,7 @@ function strokeDashArray(style: string | undefined, width: number): string | und
 }
 
 /** Smooth point array into a cubic Bezier SVG path. */
-function smoothPath(points: Array<[number, number]>): string {
+export function smoothPath(points: Array<[number, number]>): string {
   if (points.length < 2) return "";
   if (points.length === 2) {
     return `M ${points[0][0]} ${points[0][1]} L ${points[1][0]} ${points[1][1]}`;

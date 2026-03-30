@@ -667,7 +667,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         }
 
         let resizeProps: Partial<NodeProps> | undefined;
-        if (node?.type === "text") {
+        if (node?.type === "text" && node.props.type === "text") {
           const widthRatio = mode.origW === 0 ? 1 : newW / mode.origW;
           const heightRatio = mode.origH === 0 ? 1 : newH / mode.origH;
           let scale = 1;
@@ -944,7 +944,13 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       const hit = hitTestNode(e.clientX, e.clientY);
-      if (hit && (hit.type === "text" || hit.type === "sticky")) {
+      if (
+        hit &&
+        (hit.type === "text" ||
+          hit.type === "sticky" ||
+          hit.type === "rect" ||
+          hit.type === "ellipse")
+      ) {
         dispatch({ type: "SET_EDITING", nodeId: hit.id });
       }
     },
@@ -1115,7 +1121,13 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
     hoveredNodeId && !selection.nodeIds.has(hoveredNodeId)
       ? doc.nodes[hoveredNodeId] ?? null
       : null;
-  const hasTextSelection = selectedNodes.some((node) => node.type === "text");
+  const hasPlainTextSelection = selectedNodes.some((node) => node.type === "text");
+  const hasShapeTextSelection = selectedNodes.some(
+    (node) => node.type === "rect" || node.type === "ellipse"
+  );
+  const hasStickySelection = selectedNodes.some((node) => node.type === "sticky");
+  const hasTextSelection =
+    hasPlainTextSelection || hasShapeTextSelection || hasStickySelection;
   const singleSelectedNode = selectedNodes.length === 1 ? selectedNodes[0] : null;
   const hasImageSelection = singleSelectedNode?.type === "image";
   const imageToolbarPosition =
@@ -1252,11 +1264,25 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
                 );
               case "rect":
                 return (
-                  <RectNode key={id} node={node} isSelected={isSelected} />
+                  <RectNode
+                    key={id}
+                    node={node}
+                    isSelected={isSelected}
+                    isEditing={isEditing}
+                    onTextChange={(t) => handleTextChange(id, t)}
+                    onBlur={() => handleTextBlur(id)}
+                  />
                 );
               case "ellipse":
                 return (
-                  <EllipseNode key={id} node={node} isSelected={isSelected} />
+                  <EllipseNode
+                    key={id}
+                    node={node}
+                    isSelected={isSelected}
+                    isEditing={isEditing}
+                    onTextChange={(t) => handleTextChange(id, t)}
+                    onBlur={() => handleTextBlur(id)}
+                  />
                 );
               case "freehand":
                 return (
@@ -1357,7 +1383,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           <button
             type="button"
             onClick={() => {
-              if (singleSelectedNode?.type !== "image") return;
+              if (singleSelectedNode?.props.type !== "image") return;
               dispatch({
                 type: "UPDATE_NODE_PROPS",
                 nodeId: singleSelectedNode.id,
@@ -1373,8 +1399,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             <Crop size={16} />
           </button>
           <a
-            href={singleSelectedNode.props.src}
-            download={singleSelectedNode.props.alt || "image"}
+            href={(singleSelectedNode.props as { src?: string }).src}
+            download={(singleSelectedNode.props as { alt?: string }).alt || "image"}
             onClick={(e) => e.stopPropagation()}
             style={{
               ...imageToolbarButtonStyle,
@@ -1392,6 +1418,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         hasSelection={selection.nodeIds.size > 0 && !editingNodeId}
         selectedNodeCount={selection.nodeIds.size}
         showTextControls={hasTextSelection}
+        showShapeTextControls={hasShapeTextSelection}
         showImageControls={hasImageSelection}
         onStyleChange={(partial) => {
           setStylePreviewNonce((value) => value + 1);
@@ -1509,7 +1536,16 @@ function defaultPropsForTool(tool: Tool, style: ActiveStyle): NodeProps {
         textDecoration: style.textDecoration,
       };
     case "sticky":
-      return { type: "sticky", text: "", color: "yellow" };
+      return {
+        type: "sticky",
+        text: "",
+        color: "yellow",
+        fontSize: style.fontSize,
+        fontFamily: style.fontFamily,
+        fontWeight: style.fontWeight,
+        fontStyle: style.fontStyle,
+        textDecoration: style.textDecoration,
+      };
     case "rect":
       return {
         type: "rect",
@@ -1518,6 +1554,12 @@ function defaultPropsForTool(tool: Tool, style: ActiveStyle): NodeProps {
         strokeWidth: style.strokeWidth,
         strokeStyle: style.strokeStyle,
         fillStyle: style.fillStyle,
+        text: "",
+        fontSize: style.fontSize,
+        fontFamily: style.fontFamily,
+        fontWeight: style.fontWeight,
+        fontStyle: style.fontStyle,
+        textDecoration: style.textDecoration,
       };
     case "ellipse":
       return {
@@ -1527,6 +1569,12 @@ function defaultPropsForTool(tool: Tool, style: ActiveStyle): NodeProps {
         strokeWidth: style.strokeWidth,
         strokeStyle: style.strokeStyle,
         fillStyle: style.fillStyle,
+        text: "",
+        fontSize: style.fontSize,
+        fontFamily: style.fontFamily,
+        fontWeight: style.fontWeight,
+        fontStyle: style.fontStyle,
+        textDecoration: style.textDecoration,
       };
     default:
       return { type: "rect", fill: "transparent", stroke: style.color, strokeWidth: style.strokeWidth };

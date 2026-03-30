@@ -3,6 +3,7 @@
 import { memo, useLayoutEffect, useRef } from "react";
 
 import type { CanvasNode } from "@/lib/canvas/types";
+import { getTextDomFontFamily, TEXT_LINE_HEIGHT } from "@/lib/canvas/text";
 
 interface StickyNodeProps {
   node: CanvasNode;
@@ -43,7 +44,15 @@ function StickyNode({
 
   if (stickyType !== "sticky") return null;
   void isSelected;
-  const { text, color } = node.props;
+  const {
+    text,
+    color,
+    fontSize = 14,
+    fontFamily = "sans",
+    fontWeight = "normal",
+    fontStyle = "normal",
+    textDecoration = "none",
+  } = node.props;
   const colors = STICKY_COLORS[color] ?? STICKY_COLORS.yellow;
 
   return (
@@ -90,8 +99,11 @@ function StickyNode({
                 display: "block",
                 boxSizing: "border-box",
                 color: colors.text,
-                fontSize: "14px",
-                fontFamily: "var(--font-geist-sans), sans-serif",
+                fontSize: `${fontSize}px`,
+                fontFamily: getTextDomFontFamily(fontFamily),
+                fontWeight,
+                fontStyle,
+                textDecoration,
                 background: "transparent",
                 border: "none",
                 outline: "none",
@@ -103,7 +115,7 @@ function StickyNode({
                 overflowX: "hidden",
                 resize: "none",
                 textAlign: "center",
-                lineHeight: "1.35",
+                lineHeight: String(TEXT_LINE_HEIGHT),
               }}
               autoFocus
             />
@@ -118,8 +130,11 @@ function StickyNode({
               display: "flex",
               boxSizing: "border-box",
               color: colors.text,
-              fontSize: "14px",
-              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontSize: `${fontSize}px`,
+              fontFamily: getTextDomFontFamily(fontFamily),
+              fontWeight,
+              fontStyle,
+              textDecoration,
               padding: "12px",
               wordBreak: "break-word",
               whiteSpace: "pre-wrap",
@@ -127,7 +142,7 @@ function StickyNode({
               userSelect: "none",
               overflow: "hidden",
               textAlign: "center",
-              lineHeight: "1.35",
+              lineHeight: String(TEXT_LINE_HEIGHT),
               alignItems: "center",
               justifyContent: "center",
             }}
