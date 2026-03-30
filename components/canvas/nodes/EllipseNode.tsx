@@ -16,6 +16,7 @@ interface EllipseNodeProps {
   isEditing?: boolean;
   onTextChange?: (text: string) => void;
   onBlur?: () => void;
+  onResize?: (width: number, height: number) => void;
 }
 
 function strokeDashArray(style: string | undefined, width: number): string | undefined {
@@ -36,6 +37,7 @@ function EllipseNode({
   isEditing = false,
   onTextChange,
   onBlur,
+  onResize,
 }: EllipseNodeProps) {
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const clipId = useId();
@@ -83,10 +85,22 @@ function EllipseNode({
     if (shapeType !== "ellipse" || !isEditing || !editorRef.current) return;
     const textarea = editorRef.current;
     const availableHeight = Math.max(node.height - TEXT_BOX_PADDING_Y * 2, 0);
+    const availableWidth = Math.max(node.width - TEXT_BOX_PADDING_X * 2, 0);
 
     textarea.style.height = "0px";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, availableHeight)}px`;
-  }, [isEditing, node.height, text, shapeType]);
+    const scrollHeight = textarea.scrollHeight;
+    const scrollWidth = textarea.scrollWidth;
+
+    // If content needs more height or width, expand the node
+    // For ellipse, expand both dimensions to maintain aspect ratio
+    if (scrollHeight > availableHeight || scrollWidth > availableWidth) {
+      const newHeight = Math.max(node.height, scrollHeight + TEXT_BOX_PADDING_Y * 2);
+      const newWidth = Math.max(node.width, scrollWidth + TEXT_BOX_PADDING_X * 2);
+      onResize?.(newWidth, newHeight);
+    }
+
+    textarea.style.height = `${Math.min(scrollHeight, availableHeight)}px`;
+  }, [isEditing, node.height, node.width, text, shapeType, onResize]);
 
   if (shapeType !== "ellipse") return null;
   void isSelected;

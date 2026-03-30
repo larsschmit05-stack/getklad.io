@@ -1293,6 +1293,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
                     isEditing={isEditing}
                     onTextChange={(t) => handleTextChange(id, t)}
                     onBlur={() => handleTextBlur(id)}
+                    onResize={(w, h) => handleNodeSizeChange(id, w, h)}
                   />
                 );
               case "ellipse":
@@ -1304,6 +1305,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
                     isEditing={isEditing}
                     onTextChange={(t) => handleTextChange(id, t)}
                     onBlur={() => handleTextBlur(id)}
+                    onResize={(w, h) => handleNodeSizeChange(id, w, h)}
                   />
                 );
               case "freehand":
