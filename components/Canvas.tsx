@@ -810,25 +810,6 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           let w = dragRect.maxX - dragRect.minX;
           let h = dragRect.maxY - dragRect.minY;
 
-          // Make squares for rect/ellipse/sticky
-          if (s.activeTool === "rect" || s.activeTool === "ellipse" || s.activeTool === "sticky") {
-            const side = Math.max(w, h);
-            // If dragging left, anchor on the right side of the square
-            if (world.x < mode.startWorldX) {
-              x = dragRect.maxX - side;
-            } else {
-              x = dragRect.minX;
-            }
-            // If dragging up, anchor on the bottom side of the square
-            if (world.y < mode.startWorldY) {
-              y = dragRect.maxY - side;
-            } else {
-              y = dragRect.minY;
-            }
-            w = side;
-            h = side;
-          }
-
           setShapePreview({
             x,
             y,
@@ -952,22 +933,6 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           h = defaultSize.h / cam.zoom;
           x = mode.startWorldX - w / 2;
           y = mode.startWorldY - h / 2;
-        } else if (tool === "rect" || tool === "ellipse" || tool === "sticky") {
-          const side = Math.max(w, h);
-          // If dragging left, anchor on the right side of the square
-          if (endWorld.x < mode.startWorldX) {
-            x = dragRect.maxX - side;
-          } else {
-            x = dragRect.minX;
-          }
-          // If dragging up, anchor on the bottom side of the square
-          if (endWorld.y < mode.startWorldY) {
-            y = dragRect.maxY - side;
-          } else {
-            y = dragRect.minY;
-          }
-          w = side;
-          h = side;
         }
 
         dispatch({
