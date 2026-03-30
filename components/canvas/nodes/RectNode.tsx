@@ -98,32 +98,46 @@ function RectNode({
         height={Math.max(0, node.height - TEXT_BOX_PADDING_Y * 2)}
       >
         {isEditing ? (
-          <textarea
-            ref={editorRef}
-            value={text}
-            onChange={(e) => onTextChange?.(e.target.value)}
-            onBlur={onBlur}
-            onPointerDown={(e) => e.stopPropagation()}
+          <div
             style={{
               width: "100%",
               height: "100%",
               boxSizing: "border-box",
-              resize: "none",
-              border: "none",
-              outline: "none",
-              background: "transparent",
-              color: stroke,
-              fontSize: `${fontSize}px`,
-              fontFamily: getTextDomFontFamily(fontFamily),
-              fontWeight,
-              fontStyle,
-              textDecoration,
-              textAlign: "center",
-              lineHeight: String(TEXT_LINE_HEIGHT),
-              whiteSpace: "pre-wrap",
-              overflow: "hidden",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
             }}
-          />
+          >
+            <textarea
+              ref={editorRef}
+              value={text}
+              onChange={(e) => onTextChange?.(e.target.value)}
+              onBlur={onBlur}
+              onPointerDown={(e) => e.stopPropagation()}
+              style={{
+                width: "100%",
+                maxHeight: "100%",
+                display: "block",
+                boxSizing: "border-box",
+                resize: "none",
+                border: "none",
+                outline: "none",
+                background: "transparent",
+                color: stroke,
+                fontSize: `${fontSize}px`,
+                fontFamily: getTextDomFontFamily(fontFamily),
+                fontWeight,
+                fontStyle,
+                textDecoration,
+                textAlign: "center",
+                lineHeight: String(TEXT_LINE_HEIGHT),
+                whiteSpace: "pre-wrap",
+                overflow: "hidden",
+                padding: 0,
+                margin: 0,
+              }}
+            />
+          </div>
         ) : (
           <div
             style={{
