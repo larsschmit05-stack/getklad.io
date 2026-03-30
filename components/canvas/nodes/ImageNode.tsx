@@ -12,60 +12,58 @@ interface ImageNodeProps {
 function ImageNode({ node, isSelected }: ImageNodeProps) {
   if (node.props.type !== "image") return null;
   void isSelected;
-  const { src, alt, opacity = 1, fit = "contain" } = node.props;
-  const cropX = (node.props as { cropX?: number }).cropX ?? 0;
-  const cropY = (node.props as { cropY?: number }).cropY ?? 0;
-  const cropW = (node.props as { cropW?: number }).cropW ?? 1;
-  const cropH = (node.props as { cropH?: number }).cropH ?? 1;
+  const { src, alt, opacity = 1, fit = "contain", cropBox } = node.props;
+  const clipPathId = `clip-${node.id}`;
 
-  // If cropped, use clipPath; otherwise use simple preserveAspectRatio
-  if (cropX !== 0 || cropY !== 0 || cropW !== 1 || cropH !== 1) {
-    // Crop mode: image is scaled so crop region fills node box
-    const imgW = node.width / cropW;
-    const imgH = node.height / cropH;
-    const imgX = -cropX * imgW;
-    const imgY = -cropY * imgH;
-
-    return (
-      <g transform={`translate(${node.x}, ${node.y})`}>
-        <defs>
-          <clipPath id={`crop-${node.id}`} clipPathUnits="userSpaceOnUse">
-            <rect x={0} y={0} width={node.width} height={node.height} />
-          </clipPath>
-        </defs>
-        <image
-          href={src}
-          x={imgX}
-          y={imgY}
-          width={imgW}
-          height={imgH}
-          preserveAspectRatio="none"
-          clipPath={`url(#crop-${node.id})`}
-          opacity={opacity}
-          aria-label={alt}
-        />
-      </g>
-    );
-  }
-
-  // No crop: use standard fit modes
   return (
     <g transform={`translate(${node.x}, ${node.y})`}>
+      {/* Define clipping path if crop exists */}
+      {cropBox && (
+        <defs>
+          <clipPath id={clipPathId}>
+            <rect x={cropBox.x} y={cropBox.y} width={cropBox.width} height={cropBox.height} />
+          </clipPath>
+        </defs>
+      )}
+      {/* Use key to force re-render when fit or cropBox changes */}
       <image
+        key={`${src}-${fit}-${cropBox?.x || 0}`}
         href={src}
         width={node.width}
         height={node.height}
         preserveAspectRatio={fit === "cover" ? "xMidYMid slice" : "xMidYMid meet"}
         opacity={opacity}
         aria-label={alt}
+        clipPath={cropBox ? `url(#${clipPathId})` : undefined}
       />
     </g>
   );
 }
 
-function areImageNodePropsEqual(prev: ImageNodeProps, next: ImageNodeProps) {
-  const prevProps = prev.node.props as { src?: string; alt?: string; opacity?: number; fit?: string; cropX?: number; cropY?: number; cropW?: number; cropH?: number };
-  const nextProps = next.node.props as { src?: string; alt?: string; opacity?: number; fit?: string; cropX?: number; cropY?: number; cropW?: number; cropH?: number };
+function areImageNodePropsEqual(prev: ImageNodeProps, next: ImageNodeProps): boolean {
+  const prevProps = prev.node.props as {
+    src?: string;
+    alt?: string;
+    opacity?: number;
+    fit?: string;
+    cropBox?: { x: number; y: number; width: number; height: number };
+  };
+  const nextProps = next.node.props as {
+    src?: string;
+    alt?: string;
+    opacity?: number;
+    fit?: string;
+    cropBox?: { x: number; y: number; width: number; height: number };
+  };
+  const cropBoxEqual =
+    prevProps.cropBox === nextProps.cropBox ||
+    (prevProps.cropBox &&
+      nextProps.cropBox &&
+      prevProps.cropBox.x === nextProps.cropBox.x &&
+      prevProps.cropBox.y === nextProps.cropBox.y &&
+      prevProps.cropBox.width === nextProps.cropBox.width &&
+      prevProps.cropBox.height === nextProps.cropBox.height) ||
+    (!prevProps.cropBox && !nextProps.cropBox);
 
   return (
     prev.node.id === next.node.id &&
@@ -79,10 +77,7 @@ function areImageNodePropsEqual(prev: ImageNodeProps, next: ImageNodeProps) {
     prevProps.alt === nextProps.alt &&
     prevProps.opacity === nextProps.opacity &&
     prevProps.fit === nextProps.fit &&
-    (prevProps.cropX ?? 0) === (nextProps.cropX ?? 0) &&
-    (prevProps.cropY ?? 0) === (nextProps.cropY ?? 0) &&
-    (prevProps.cropW ?? 1) === (nextProps.cropW ?? 1) &&
-    (prevProps.cropH ?? 1) === (nextProps.cropH ?? 1)
+    cropBoxEqual
   );
 }
 
