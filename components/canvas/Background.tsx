@@ -14,7 +14,7 @@ interface BackgroundProps {
  */
 export default function Background({ camera, width, height }: BackgroundProps) {
   const spacing = 24;
-  const dotRadius = 1.5;
+  const dotRadius = Math.min(1.5, spacing * camera.zoom * 0.15);
 
   return (
     <svg
