@@ -164,11 +164,17 @@ export default function ImageCropOverlay({
     };
   }, [onConfirm]);
 
-  const handleScreenSize = 10;
-  const edgeHandleLength = 18;
-  const edgeHandleThickness = 6;
-  const cornerHandleSize = 8;
-  const edgeHitSize = 20;
+  // Handle dimensions (screen pixels)
+  const armLength = 16;       // L-shape arm length at corners
+  const lineWidth = 3;        // Stroke width of handles
+  const barLength = 20;       // Edge handle bar length
+  const hitArea = 16;         // Hit area size for edge handles
+
+  // Crop box edges in screen pixels
+  const cx = cropBox.x * zoom;
+  const cy = cropBox.y * zoom;
+  const cw = cropBox.width * zoom;
+  const ch = cropBox.height * zoom;
 
   return (
     <div
@@ -237,220 +243,144 @@ export default function ImageCropOverlay({
         />
       </svg>
 
-      {/* Top-left corner */}
+      {/* TL corner — ┌ shape: arm RIGHT along top edge + arm DOWN along left edge */}
       <div
         onPointerDown={handlePointerDown("tl")}
         style={{
           position: "absolute",
-          left: `${(cropBox.x - handleScreenSize) * zoom}px`,
-          top: `${(cropBox.y - handleScreenSize) * zoom}px`,
-          width: `${handleScreenSize * 2 * zoom}px`,
-          height: `${handleScreenSize * 2 * zoom}px`,
+          left: `${cx - lineWidth}px`,
+          top: `${cy - lineWidth}px`,
+          width: `${armLength + lineWidth}px`,
+          height: `${armLength + lineWidth}px`,
+          borderTop: `${lineWidth}px solid #2563eb`,
+          borderLeft: `${lineWidth}px solid #2563eb`,
           cursor: "nwse-resize",
           pointerEvents: "auto",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          boxSizing: "border-box",
         }}
-      >
-        <div
-          style={{
-            width: `${cornerHandleSize}px`,
-            height: `${cornerHandleSize}px`,
-            borderRadius: "2px",
-            backgroundColor: "#2563eb",
-            boxShadow: "0 0 0 1px rgba(37, 99, 235, 0.12)",
-          }}
-        />
-      </div>
+      />
 
-      {/* Top-right corner */}
+      {/* TR corner — ┐ shape: arm LEFT along top edge + arm DOWN along right edge */}
       <div
         onPointerDown={handlePointerDown("tr")}
         style={{
           position: "absolute",
-          right: `${(nodeWidth - (cropBox.x + cropBox.width) - handleScreenSize) * zoom}px`,
-          top: `${(cropBox.y - handleScreenSize) * zoom}px`,
-          width: `${handleScreenSize * 2 * zoom}px`,
-          height: `${handleScreenSize * 2 * zoom}px`,
+          left: `${cx + cw - armLength}px`,
+          top: `${cy - lineWidth}px`,
+          width: `${armLength + lineWidth}px`,
+          height: `${armLength + lineWidth}px`,
+          borderTop: `${lineWidth}px solid #2563eb`,
+          borderRight: `${lineWidth}px solid #2563eb`,
           cursor: "nesw-resize",
           pointerEvents: "auto",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          boxSizing: "border-box",
         }}
-      >
-        <div
-          style={{
-            width: `${cornerHandleSize}px`,
-            height: `${cornerHandleSize}px`,
-            borderRadius: "2px",
-            backgroundColor: "#2563eb",
-            boxShadow: "0 0 0 1px rgba(37, 99, 235, 0.12)",
-          }}
-        />
-      </div>
+      />
 
-      {/* Bottom-left corner */}
+      {/* BL corner — └ shape: arm RIGHT along bottom edge + arm UP along left edge */}
       <div
         onPointerDown={handlePointerDown("bl")}
         style={{
           position: "absolute",
-          left: `${(cropBox.x - handleScreenSize) * zoom}px`,
-          bottom: `${(nodeHeight - (cropBox.y + cropBox.height) - handleScreenSize) * zoom}px`,
-          width: `${handleScreenSize * 2 * zoom}px`,
-          height: `${handleScreenSize * 2 * zoom}px`,
+          left: `${cx - lineWidth}px`,
+          top: `${cy + ch - armLength}px`,
+          width: `${armLength + lineWidth}px`,
+          height: `${armLength + lineWidth}px`,
+          borderBottom: `${lineWidth}px solid #2563eb`,
+          borderLeft: `${lineWidth}px solid #2563eb`,
           cursor: "nesw-resize",
           pointerEvents: "auto",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          boxSizing: "border-box",
         }}
-      >
-        <div
-          style={{
-            width: `${cornerHandleSize}px`,
-            height: `${cornerHandleSize}px`,
-            borderRadius: "2px",
-            backgroundColor: "#2563eb",
-            boxShadow: "0 0 0 1px rgba(37, 99, 235, 0.12)",
-          }}
-        />
-      </div>
+      />
 
-      {/* Bottom-right corner */}
+      {/* BR corner — ┘ shape: arm LEFT along bottom edge + arm UP along right edge */}
       <div
         onPointerDown={handlePointerDown("br")}
         style={{
           position: "absolute",
-          right: `${(nodeWidth - (cropBox.x + cropBox.width) - handleScreenSize) * zoom}px`,
-          bottom: `${(nodeHeight - (cropBox.y + cropBox.height) - handleScreenSize) * zoom}px`,
-          width: `${handleScreenSize * 2 * zoom}px`,
-          height: `${handleScreenSize * 2 * zoom}px`,
+          left: `${cx + cw - armLength}px`,
+          top: `${cy + ch - armLength}px`,
+          width: `${armLength + lineWidth}px`,
+          height: `${armLength + lineWidth}px`,
+          borderBottom: `${lineWidth}px solid #2563eb`,
+          borderRight: `${lineWidth}px solid #2563eb`,
           cursor: "nwse-resize",
           pointerEvents: "auto",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          boxSizing: "border-box",
         }}
-      >
-        <div
-          style={{
-            width: `${cornerHandleSize}px`,
-            height: `${cornerHandleSize}px`,
-            borderRadius: "2px",
-            backgroundColor: "#2563eb",
-            boxShadow: "0 0 0 1px rgba(37, 99, 235, 0.12)",
-          }}
-        />
-      </div>
+      />
 
-      {/* Top handle */}
+      {/* Top edge handle — horizontal bar flush against top edge */}
       <div
         onPointerDown={handlePointerDown("t")}
         style={{
           position: "absolute",
-          left: `${(cropBox.x + cropBox.width / 2) * zoom - edgeHitSize / 2}px`,
-          top: `${cropBox.y * zoom - edgeHitSize / 2}px`,
-          width: `${edgeHitSize}px`,
-          height: `${edgeHitSize}px`,
+          left: `${cx + cw / 2 - barLength / 2}px`,
+          top: `${cy - hitArea}px`,
+          width: `${barLength}px`,
+          height: `${hitArea}px`,
           cursor: "ns-resize",
           pointerEvents: "auto",
           display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          alignItems: "flex-end",
         }}
       >
-        <div
-          style={{
-            width: `${edgeHandleLength}px`,
-            height: `${edgeHandleThickness}px`,
-            borderRadius: "999px",
-            backgroundColor: "#2563eb",
-            boxShadow: "0 0 0 1px rgba(37, 99, 235, 0.12)",
-          }}
-        />
+        <div style={{ width: "100%", height: `${lineWidth}px`, background: "#2563eb", borderRadius: "1px" }} />
       </div>
 
-      {/* Bottom handle */}
+      {/* Bottom edge handle */}
       <div
         onPointerDown={handlePointerDown("b")}
         style={{
           position: "absolute",
-          left: `${(cropBox.x + cropBox.width / 2) * zoom - edgeHitSize / 2}px`,
-          top: `${(cropBox.y + cropBox.height) * zoom - edgeHitSize / 2}px`,
-          width: `${edgeHitSize}px`,
-          height: `${edgeHitSize}px`,
+          left: `${cx + cw / 2 - barLength / 2}px`,
+          top: `${cy + ch}px`,
+          width: `${barLength}px`,
+          height: `${hitArea}px`,
           cursor: "ns-resize",
           pointerEvents: "auto",
           display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          alignItems: "flex-start",
         }}
       >
-        <div
-          style={{
-            width: `${edgeHandleLength}px`,
-            height: `${edgeHandleThickness}px`,
-            borderRadius: "999px",
-            backgroundColor: "#2563eb",
-            boxShadow: "0 0 0 1px rgba(37, 99, 235, 0.12)",
-          }}
-        />
+        <div style={{ width: "100%", height: `${lineWidth}px`, background: "#2563eb", borderRadius: "1px" }} />
       </div>
 
-      {/* Left handle */}
+      {/* Left edge handle — vertical bar flush against left edge */}
       <div
         onPointerDown={handlePointerDown("l")}
         style={{
           position: "absolute",
-          left: `${cropBox.x * zoom - edgeHitSize / 2}px`,
-          top: `${(cropBox.y + cropBox.height / 2) * zoom - edgeHitSize / 2}px`,
-          width: `${edgeHitSize}px`,
-          height: `${edgeHitSize}px`,
+          left: `${cx - hitArea}px`,
+          top: `${cy + ch / 2 - barLength / 2}px`,
+          width: `${hitArea}px`,
+          height: `${barLength}px`,
           cursor: "ew-resize",
           pointerEvents: "auto",
           display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          justifyContent: "flex-end",
         }}
       >
-        <div
-          style={{
-            width: `${edgeHandleThickness}px`,
-            height: `${edgeHandleLength}px`,
-            borderRadius: "999px",
-            backgroundColor: "#2563eb",
-            boxShadow: "0 0 0 1px rgba(37, 99, 235, 0.12)",
-          }}
-        />
+        <div style={{ width: `${lineWidth}px`, height: "100%", background: "#2563eb", borderRadius: "1px" }} />
       </div>
 
-      {/* Right handle */}
+      {/* Right edge handle */}
       <div
         onPointerDown={handlePointerDown("r")}
         style={{
           position: "absolute",
-          left: `${(cropBox.x + cropBox.width) * zoom - edgeHitSize / 2}px`,
-          top: `${(cropBox.y + cropBox.height / 2) * zoom - edgeHitSize / 2}px`,
-          width: `${edgeHitSize}px`,
-          height: `${edgeHitSize}px`,
+          left: `${cx + cw}px`,
+          top: `${cy + ch / 2 - barLength / 2}px`,
+          width: `${hitArea}px`,
+          height: `${barLength}px`,
           cursor: "ew-resize",
           pointerEvents: "auto",
           display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          justifyContent: "flex-start",
         }}
       >
-        <div
-          style={{
-            width: `${edgeHandleThickness}px`,
-            height: `${edgeHandleLength}px`,
-            borderRadius: "999px",
-            backgroundColor: "#2563eb",
-            boxShadow: "0 0 0 1px rgba(37, 99, 235, 0.12)",
-          }}
-        />
+        <div style={{ width: `${lineWidth}px`, height: "100%", background: "#2563eb", borderRadius: "1px" }} />
       </div>
     </div>
   );

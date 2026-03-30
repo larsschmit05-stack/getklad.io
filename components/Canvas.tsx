@@ -2122,7 +2122,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             position: "fixed",
             left: imageToolbarPosition.left,
             top: imageToolbarPosition.top,
-            transform: "translate(-50%, calc(-100% - 8px))",
+            transform: "translate(-50%, calc(-100% - 18px))",
             zIndex: 1000,
             display: "flex",
             gap: "5px",
