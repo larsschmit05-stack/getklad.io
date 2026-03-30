@@ -1,5 +1,6 @@
 "use client";
 
+import type React from "react";
 import {
   AlignStartHorizontal,
   AlignCenterHorizontal,
@@ -12,6 +13,12 @@ import {
 import { PALETTE, type ActiveStyle, type StrokeStyle, type FillStyle } from "@/lib/canvas/types";
 import type { AlignmentType } from "@/lib/canvas/reducer";
 
+export type ZOrderAction =
+  | "bring-to-front"
+  | "bring-forward"
+  | "send-backward"
+  | "send-to-back";
+
 interface StylePanelProps {
   activeStyle: ActiveStyle;
   hasSelection: boolean;
@@ -19,8 +26,10 @@ interface StylePanelProps {
   showTextControls?: boolean;
   showShapeTextControls?: boolean;
   showImageControls?: boolean;
+  showStickyControls?: boolean;
   onStyleChange: (style: Partial<ActiveStyle>) => void;
   onAlign?: (alignment: AlignmentType) => void;
+  onZOrder?: (action: ZOrderAction) => void;
 }
 
 const TEXT_SIZES = [
@@ -36,6 +45,63 @@ const FONT_FAMILIES = [
   { label: "Mono", value: "mono" },
   { label: "Display", value: "display" },
 ] as const;
+
+// ---------------------------------------------------------------------------
+// Z-Order icons (16×16 viewBox, matching reference screenshot style)
+// ---------------------------------------------------------------------------
+
+function BringToFrontIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <rect x="1" y="5" width="8" height="8" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
+      <rect x="7" y="3" width="8" height="8" rx="1" stroke="currentColor" strokeWidth="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
+function BringForwardIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <rect x="1" y="5" width="8" height="8" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
+      <rect x="7" y="3" width="8" height="8" rx="1" stroke="currentColor" strokeWidth="1.2" fill="var(--klad-paper, #f7f4ef)" />
+    </svg>
+  );
+}
+
+function SendBackwardIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <rect x="7" y="3" width="8" height="8" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
+      <rect x="1" y="5" width="8" height="8" rx="1" stroke="currentColor" strokeWidth="1.2" fill="currentColor" opacity="0.5" />
+    </svg>
+  );
+}
+
+function SendToBackIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <rect x="7" y="3" width="8" height="8" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
+      {/* Hatched pattern */}
+      <defs>
+        <pattern id="hatch" patternUnits="userSpaceOnUse" width="3" height="3" patternTransform="rotate(45)">
+          <line x1="0" y1="0" x2="0" y2="3" stroke="currentColor" strokeWidth="0.8" />
+        </pattern>
+      </defs>
+      <rect x="1" y="5" width="8" height="8" rx="1" stroke="currentColor" strokeWidth="1.2" fill="url(#hatch)" />
+    </svg>
+  );
+}
+
+const Z_ORDER_BUTTONS: Array<{
+  action: ZOrderAction;
+  icon: () => React.ReactElement;
+  tooltip: string;
+}> = [
+  { action: "bring-to-front", icon: BringToFrontIcon, tooltip: "Bring to Front" },
+  { action: "bring-forward", icon: BringForwardIcon, tooltip: "Bring Forward" },
+  { action: "send-backward", icon: SendBackwardIcon, tooltip: "Send Backward" },
+  { action: "send-to-back", icon: SendToBackIcon, tooltip: "Send to Back" },
+];
 
 const ALIGNMENT_BUTTONS: Array<{
   alignment: AlignmentType;
@@ -55,8 +121,10 @@ export default function StylePanel({
   showTextControls = false,
   showShapeTextControls = false,
   showImageControls = false,
+  showStickyControls = false,
   onStyleChange,
   onAlign,
+  onZOrder,
 }: StylePanelProps) {
   if (!hasSelection) return null;
 
@@ -449,6 +517,61 @@ export default function StylePanel({
       </div>
       )}
 
+      {/* Sticky Note Colors */}
+      {showStickyControls && (
+      <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "6px" }}>
+        <label
+          style={{
+            display: "block",
+            fontSize: "11px",
+            fontWeight: "600",
+            color: "var(--klad-ink3, #7a756e)",
+            marginBottom: "6px",
+            textTransform: "uppercase",
+            letterSpacing: "0.5px",
+          }}
+        >
+          Sticky Color
+        </label>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(4, 1fr)",
+            gap: "3px",
+          }}
+        >
+          {[
+            { name: "yellow", bg: "#fef9c3" },
+            { name: "blue", bg: "#dbeafe" },
+            { name: "green", bg: "#dcfce7" },
+            { name: "pink", bg: "#fce7f3" },
+          ].map(({ name, bg }) => (
+            <button
+              key={name}
+              type="button"
+              onClick={() => {
+                onStyleChange({ color: name });
+              }}
+              title={name}
+              style={{
+                width: "100%",
+                aspectRatio: "1",
+                backgroundColor: bg,
+                border:
+                  activeStyle.color === name
+                    ? "2px solid var(--klad-ink, #1a1814)"
+                    : "1px solid var(--klad-ink3, #7a756e)",
+                borderRadius: "2px",
+                cursor: "pointer",
+                transition: "border 0.1s",
+                pointerEvents: "auto",
+              }}
+            />
+          ))}
+        </div>
+      </div>
+      )}
+
       {/* Alignment (only for multiple selections) */}
       {selectedNodeCount >= 2 && onAlign && (
         <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" }}>
@@ -472,22 +595,7 @@ export default function StylePanel({
                 type="button"
                 onClick={() => onAlign(alignment)}
                 title={tooltip}
-                style={{
-                  flex: 1,
-                  height: "32px",
-                  padding: "4px",
-                  fontSize: "14px",
-                  color: "var(--klad-ink, #1a1814)",
-                  backgroundColor: "transparent",
-                  border: "1px solid var(--klad-ink3, #7a756e)",
-                  borderRadius: "2px",
-                  cursor: "pointer",
-                  transition: "background-color 0.1s",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  pointerEvents: "auto",
-                }}
+                style={iconBtnStyle}
                 onMouseEnter={(e) => {
                   (e.currentTarget as HTMLButtonElement).style.backgroundColor =
                     "rgba(0,0,0,0.06)";
@@ -503,9 +611,65 @@ export default function StylePanel({
           </div>
         </div>
       )}
+
+      {/* Z-Order */}
+      {onZOrder && (
+        <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" }}>
+          <label style={sectionLabelStyle}>Order</label>
+          <div style={{ display: "flex", gap: "4px" }}>
+            {Z_ORDER_BUTTONS.map(({ action, icon: Icon, tooltip }) => (
+              <button
+                key={action}
+                type="button"
+                onClick={() => onZOrder(action)}
+                title={tooltip}
+                style={iconBtnStyle}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.backgroundColor =
+                    "rgba(0,0,0,0.06)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.backgroundColor =
+                    "transparent";
+                }}
+              >
+                <Icon />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
+
+const sectionLabelStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: "11px",
+  fontWeight: "600",
+  color: "var(--klad-ink3, #7a756e)",
+  marginBottom: "6px",
+  textTransform: "uppercase",
+  letterSpacing: "0.5px",
+};
+
+const iconBtnStyle: React.CSSProperties = {
+  flex: 1,
+  height: "32px",
+  padding: "4px",
+  fontSize: "14px",
+  color: "var(--klad-ink, #1a1814)",
+  backgroundColor: "transparent",
+  border: "1px solid var(--klad-ink3, #7a756e)",
+  borderRadius: "2px",
+  cursor: "pointer",
+  transition: "background-color 0.1s",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  pointerEvents: "auto",
+};
 
 function formatButtonStyle(active: boolean) {
   return {

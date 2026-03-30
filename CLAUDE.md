@@ -83,6 +83,24 @@ When creating a rect or ellipse via drag-to-create, the shape must behave exactl
 
 Both `handlePointerMove` (for preview) and `handlePointerUp` (for commit) use `normalizeRect` output directly—do not override with forced square logic. The preview renders a semi-transparent rect/ellipse overlay on the canvas during drag.
 
+#### Arrow Connections & Shape Creation
+
+**Click vs Drag behavior (all creation tools):**
+- **Click** (no drag) → element with fixed default size, independent of zoom
+- **Drag** (>4px movement) → element sized by drag extent, use `normalizeRect()` to handle any direction
+- Critical state: `hasMoved` flag must be set in `handlePointerMove` during "create-shape" mode when drag distance > 4px (bug pattern: was only set in "move" mode, breaking drag-to-create)
+
+**Arrow snap zones & connection feedback:**
+- Snap zone: 60px center-distance radius from target node
+- When snapped: blue border highlight on target node + gray "×" marker at node center (not edge)
+- Drop inside snap → connected arrow (fromNodeId + toNodeId set)
+- Drop outside snap → free arrow with stored dx/dy vector (matches Figma behavior)
+
+**Arrow preview consistency:**
+- Endpoints calculated via `getBBoxEdgePoint(node, toward)` pointing toward final endpoint (not cursor)
+- Use `strokeLinecap: "butt"` (not "round") to prevent optical warping on dashed arrows
+- Preview and final must use identical geometry — divergence causes visual jump on commit
+
 #### Canvas Menu (CanvasMenu.tsx)
 
 The three-dot menu button (`components/canvas/CanvasMenu.tsx`) provides canvas-wide actions: edit (undo/redo/select all/delete/duplicate), view (zoom), and export (PNG/SVG). The button is positioned with `position: fixed; top: 12px; left: 110px;` to sit **right next to the Klad logo** (which occupies the top-left header area).
@@ -146,6 +164,24 @@ NEXT_PUBLIC_APP_URL         # used for magic-link emailRedirectTo
 - Use the same geometry calculation as the final shape (no separate preview logic)
 
 **Gotcha:** Preview geometry and final geometry must be identical. If they diverge, the user sees the preview move/jump unexpectedly when the shape commits.
+
+### Shape Creation: hasMoved State Tracking
+
+**Pattern:** ALL shape creation tools distinguish click (fixed size) from drag (custom size) via `hasMoved` state set in `handlePointerMove`:
+- Calculate drag distance in screen-space: `dx = (clientX - dragStartX) / zoom; dy = (clientY - dragStartY) / zoom`
+- Set `hasMoved = true` when `Math.abs(dx) > 4 || Math.abs(dy) > 4`
+- On `pointerUp`: if hasMoved=false, create default size; if true, use drag-derived dimensions
+
+**Gotcha:** `hasMoved` must be set in the SPECIFIC drag mode (create-shape, move, etc.), not just in one place. Bug pattern: hasMoved was only set in "move" mode, causing drag-to-create to always produce default-size shapes.
+
+### Arrow Connection: Endpoint Consistency
+
+**Pattern:** Arrow endpoints use `getBBoxEdgePoint(node, toward)` in both preview and final rendering, pointing toward the opposite endpoint (not cursor):
+- Source: `getBBoxEdgePoint(fromNode, targetX, targetY)` — points toward target edge
+- Target (snapped): `getBBoxEdgePoint(targetNode, sourceCenterX, sourceCenterY)` — points back toward source
+- Stroke: `strokeLinecap: "butt"` (never "round" — prevents dashed arrow warping)
+
+**Gotcha:** If preview uses different endpoint logic than final rendering, user sees jump/warp on commit. Always use `getBBoxEdgePoint` for both.
 
 ### Fixed-Position UI Layout
 

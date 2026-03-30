@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import type { CanvasNode, Camera } from "@/lib/canvas/types";
-import { getSelectionFrameBounds } from "@/lib/canvas/geometry";
+import { getSelectionFrameBounds, getConnectedArrowEndpoints, getNodeCenter } from "@/lib/canvas/geometry";
 import { arrowheadPath } from "./nodes/ArrowNode";
 import { smoothPath } from "./nodes/FreehandNode";
 
@@ -13,6 +13,7 @@ interface SelectionOverlayProps {
   camera: Camera;
   editingNodeId: string | null;
   stylePreviewNonce?: number;
+  allNodes: Record<string, CanvasNode>;
 }
 
 const HANDLE_SIZE_SCREEN = 8; // Size in screen pixels
@@ -24,6 +25,7 @@ export default function SelectionOverlay({
   camera,
   editingNodeId,
   stylePreviewNonce,
+  allNodes,
 }: SelectionOverlayProps) {
   const [previewMode, setPreviewMode] = useState(false);
 
@@ -88,18 +90,19 @@ export default function SelectionOverlay({
     );
   }
 
-  // Hide detailed selection chrome at very low zoom (zoom < 0.5) to keep canvas uncluttered
-  const showHandles = camera.zoom >= 0.5;
-
   return (
     <>
-      {showHandles && hoveredNode && selectedNodes.length === 0 && (
+      {hoveredNode && selectedNodes.length === 0 && (
         <HoverOutline node={hoveredNode} camera={camera} />
       )}
 
-      {/* Custom selection handles based on node type — hidden at low zoom */}
-      {showHandles && selectedNodes.length === 1 && (
-        <SelectionHandles node={selectedNodes[0]} camera={camera} />
+      {/* Keep the single-selection outline visible at any zoom; only hide handles at low zoom */}
+      {selectedNodes.length === 1 && (
+        <SelectionHandles
+          node={selectedNodes[0]}
+          camera={camera}
+          allNodes={allNodes}
+        />
       )}
 
       {/* Multi-select bounding box — always visible to show selection */}
@@ -132,7 +135,7 @@ function HoverOutline({
   node: CanvasNode;
   camera: Camera;
 }) {
-  const effectiveZoom = Math.max(camera.zoom, 1.0);
+  const z = camera.zoom;
 
   if (node.props.type === "arrow") {
     const { dx, dy } = node.props;
@@ -144,13 +147,13 @@ function HoverOutline({
           x2={node.x + dx}
           y2={node.y + dy}
           stroke="#3b82f6"
-          strokeWidth={Math.max(1, 1.5 / effectiveZoom)}
+          strokeWidth={1.5 / z}
           strokeLinecap="round"
         />
         <path
           d={arrowheadPath(node.x, node.y, node.x + dx, node.y + dy, 10)}
           stroke="#3b82f6"
-          strokeWidth={Math.max(1, 1.5 / effectiveZoom)}
+          strokeWidth={1.5 / z}
           fill="none"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -168,7 +171,7 @@ function HoverOutline({
         transform={`translate(${node.x}, ${node.y})`}
         fill="none"
         stroke="#3b82f6"
-        strokeWidth={Math.max(node.props.strokeWidth, 2 / effectiveZoom)}
+        strokeWidth={Math.max(node.props.strokeWidth, 2 / z)}
         strokeDasharray={
           node.props.strokeStyle === "dashed"
             ? `${node.props.strokeWidth * 6} ${node.props.strokeWidth * 4}`
@@ -185,7 +188,7 @@ function HoverOutline({
   }
 
   const frame = getSelectionFrameBounds(node, camera);
-  const strokeWidth = Math.max(1, 1.5 / effectiveZoom);
+  const strokeWidth = 1.5 / z;
 
   if (node.props.type === "ellipse") {
     return (
@@ -209,7 +212,7 @@ function HoverOutline({
       y={frame.minY}
       width={Math.max(0, frame.maxX - frame.minX)}
       height={Math.max(0, frame.maxY - frame.minY)}
-      rx={Math.max(2, 2 / effectiveZoom)}
+      rx={2 / z}
       fill="none"
       stroke="#3b82f6"
       strokeWidth={strokeWidth}
@@ -222,60 +225,124 @@ function HoverOutline({
 function SelectionHandles({
   node,
   camera,
+  allNodes,
 }: {
   node: CanvasNode;
   camera: Camera;
+  allNodes: Record<string, CanvasNode>;
 }) {
-  // Cap zoom divisor at 1.0 so handles shrink proportionally when zoomed out,
-  // but stay at fixed size when zoomed in
-  const effectiveZoom = Math.max(camera.zoom, 1.0);
-  const handleSize = HANDLE_SIZE_SCREEN / effectiveZoom;
+  const z = camera.zoom;
+  const handleSize = HANDLE_SIZE_SCREEN / z;
 
-  // Arrow: show internal blue arrow + 3 control points
+  // Arrow: show internal blue arrow + control points
   if (node.props.type === "arrow") {
-    const { dx, dy, strokeWidth } = node.props;
-    const len = Math.hypot(dx, dy);
-    if (len === 0) return null;
+    const { dx, dy, strokeWidth, fromNodeId, toNodeId } = node.props;
+    const isConnected = !!(fromNodeId && toNodeId);
 
-    // Three control points: start, middle (for curve), end
-    const startX = node.x;
-    const startY = node.y;
-    const endX = node.x + dx;
-    const endY = node.y + dy;
+    let startX: number, startY: number, endX: number, endY: number;
+    if (isConnected) {
+      const fromNode = allNodes[fromNodeId!];
+      const toNode = allNodes[toNodeId!];
+      if (!fromNode || !toNode) return null;
+      const ep = getConnectedArrowEndpoints(fromNode, toNode);
+      startX = ep.x1; startY = ep.y1; endX = ep.x2; endY = ep.y2;
+    } else {
+      const len = Math.hypot(dx, dy);
+      if (len === 0) return null;
+      startX = node.x; startY = node.y; endX = node.x + dx; endY = node.y + dy;
+    }
+
     const midX = (startX + endX) / 2;
     const midY = (startY + endY) / 2;
-
     const arrowSize = Math.min(12, Math.max(8, strokeWidth * 4));
+
+    if (isConnected) {
+      const fromNode = allNodes[fromNodeId!]!;
+      const toNode = allNodes[toNodeId!]!;
+      const fromCenter = getNodeCenter(fromNode);
+      const toCenter = getNodeCenter(toNode);
+
+      return (
+        <g pointerEvents="none">
+          {/* Dashed extension from source node center to arrow start edge */}
+          <line
+            x1={fromCenter.x} y1={fromCenter.y}
+            x2={startX} y2={startY}
+            stroke="#9ca3af"
+            strokeWidth={1 / z}
+            strokeDasharray={`${4 / z} ${3 / z}`}
+            strokeLinecap="round"
+          />
+          {/* Solid blue arrow from edge to edge */}
+          <line
+            x1={startX} y1={startY} x2={endX} y2={endY}
+            stroke="#3b82f6" strokeWidth={1 / z} strokeLinecap="round"
+          />
+          <path
+            d={arrowheadPath(startX, startY, endX, endY, arrowSize)}
+            stroke="#3b82f6" strokeWidth={1 / z}
+            fill="none" strokeLinecap="round" strokeLinejoin="round"
+          />
+          {/* Dashed extension from arrow end edge to target node center */}
+          <line
+            x1={endX} y1={endY}
+            x2={toCenter.x} y2={toCenter.y}
+            stroke="#9ca3af"
+            strokeWidth={1 / z}
+            strokeDasharray={`${4 / z} ${3 / z}`}
+            strokeLinecap="round"
+          />
+          {/* Handle at source node center */}
+          <circle
+            cx={fromCenter.x} cy={fromCenter.y}
+            r={handleSize / 2}
+            fill="white" stroke="#3b82f6" strokeWidth={1 / z}
+          />
+          {/* Midpoint handle */}
+          <circle
+            cx={midX} cy={midY}
+            r={handleSize / 2}
+            fill="white" stroke="#3b82f6" strokeWidth={1 / z}
+          />
+          {/* Handle at target node center */}
+          <circle
+            cx={toCenter.x} cy={toCenter.y}
+            r={handleSize / 2}
+            fill="white" stroke="#3b82f6" strokeWidth={1 / z}
+          />
+        </g>
+      );
+    }
 
     return (
       <g pointerEvents="none">
-        {/* Thin blue arrow centered inside the existing arrow */}
+        {/* Thin blue arrow overlay */}
         <line
           x1={startX}
           y1={startY}
           x2={endX}
           y2={endY}
           stroke="#3b82f6"
-          strokeWidth={Math.max(0.5, 1 / effectiveZoom)}
+          strokeWidth={1 / z}
           strokeLinecap="round"
         />
         <path
           d={arrowheadPath(startX, startY, endX, endY, arrowSize)}
           stroke="#3b82f6"
-          strokeWidth={Math.max(0.5, 1 / effectiveZoom)}
+          strokeWidth={1 / z}
           fill="none"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
 
-        {/* Three white control points */}
+        {/* Free arrow: start handle */}
         <circle
           cx={startX}
           cy={startY}
           r={handleSize / 2}
           fill="white"
           stroke="#3b82f6"
-          strokeWidth={Math.max(0.5, 1 / effectiveZoom)}
+          strokeWidth={1 / z}
           style={{ cursor: "move" }}
         />
 
@@ -285,17 +352,18 @@ function SelectionHandles({
           r={handleSize / 2}
           fill="white"
           stroke="#3b82f6"
-          strokeWidth={Math.max(0.5, 1 / effectiveZoom)}
+          strokeWidth={1 / z}
           style={{ cursor: "move" }}
         />
 
+        {/* Free arrow: end handle */}
         <circle
           cx={endX}
           cy={endY}
           r={handleSize / 2}
           fill="white"
           stroke="#3b82f6"
-          strokeWidth={Math.max(0.5, 1 / effectiveZoom)}
+          strokeWidth={1 / z}
           style={{ cursor: "move" }}
         />
       </g>
@@ -313,8 +381,8 @@ function SelectionHandles({
   ) {
     const outlineStroke =
       "strokeWidth" in node.props
-        ? Math.max(0.5, Math.min(node.props.strokeWidth, 1.25) / effectiveZoom)
-        : Math.max(0.5, 1 / effectiveZoom);
+        ? 1.25 / z
+        : 1 / z;
     const frame = getSelectionFrameBounds(node, camera);
     const corners: [string, number, number][] = [
       ["top-left", frame.minX, frame.minY],
@@ -351,27 +419,27 @@ function SelectionHandles({
             y={frame.minY}
             width={frame.maxX - frame.minX}
             height={frame.maxY - frame.minY}
-            rx={Math.max(2, 2 / effectiveZoom)}
+            rx={2 / z}
             fill="none"
             stroke="#3b82f6"
             strokeWidth={outlineStroke}
           />
         )}
-        {corners.map(([key, cx, cy]) => (
-          <rect
-            key={key}
-            data-handle={key}
-            x={cx - handleSize / 2}
-            y={cy - handleSize / 2}
-            width={handleSize}
-            height={handleSize}
-            rx={Math.max(1, handleSize / 4)}
-            fill="white"
-            stroke="#3b82f6"
-            strokeWidth={Math.max(0.5, 1.5 / effectiveZoom)}
-            style={{ cursor: getCursorForHandle(key) }}
-          />
-        ))}
+        {node.props.type !== "sticky" && corners.map(([key, cx, cy]) => (
+            <rect
+              key={key}
+              data-handle={key}
+              x={cx - handleSize / 2}
+              y={cy - handleSize / 2}
+              width={handleSize}
+              height={handleSize}
+              rx={Math.max(1, handleSize / 4)}
+              fill="white"
+              stroke="#3b82f6"
+              strokeWidth={1.5 / z}
+              style={{ cursor: getCursorForHandle(key) }}
+            />
+          ))}
       </g>
     );
   }
@@ -416,8 +484,8 @@ function MultiSelectBoundingBox({
 
   const width = maxX - minX;
   const height = maxY - minY;
-  const effectiveZoom = Math.max(camera.zoom, 1.0);
-  const strokeWidth = Math.max(0.5, 1.5 / effectiveZoom);
+  const z = camera.zoom;
+  const strokeWidth = 1.5 / z;
 
   return (
     <rect
@@ -428,7 +496,7 @@ function MultiSelectBoundingBox({
       fill="none"
       stroke="#3b82f6"
       strokeWidth={strokeWidth}
-      strokeDasharray={`${4 / effectiveZoom} ${2 / effectiveZoom}`}
+      strokeDasharray={`${4 / z} ${2 / z}`}
       pointerEvents="none"
     />
   );
