@@ -88,23 +88,26 @@ export default function SelectionOverlay({
     );
   }
 
+  // Hide detailed selection chrome at very low zoom (zoom < 0.5) to keep canvas uncluttered
+  const showHandles = camera.zoom >= 0.5;
+
   return (
     <>
-      {hoveredNode && selectedNodes.length === 0 && (
+      {showHandles && hoveredNode && selectedNodes.length === 0 && (
         <HoverOutline node={hoveredNode} camera={camera} />
       )}
 
-      {/* Custom selection handles based on node type */}
-      {selectedNodes.length === 1 && (
+      {/* Custom selection handles based on node type — hidden at low zoom */}
+      {showHandles && selectedNodes.length === 1 && (
         <SelectionHandles node={selectedNodes[0]} camera={camera} />
       )}
 
-      {/* Multi-select bounding box */}
+      {/* Multi-select bounding box — always visible to show selection */}
       {selectedNodes.length > 1 && (
         <MultiSelectBoundingBox nodes={selectedNodes} camera={camera} />
       )}
 
-      {/* Marquee selection rectangle */}
+      {/* Marquee selection rectangle — always visible to show selection area */}
       {marquee && (
         <rect
           x={Math.min(marquee.x, marquee.x + marquee.width)}
