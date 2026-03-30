@@ -129,11 +129,11 @@ export default function ImageCropOverlay({
     }
   }, [handleMouseMove, handleMouseUp]);
 
-  const handleSize = 10;
+  const handleScreenSize = 10; // Fixed screen pixels for easy grabbing
   const handleStyle = {
     position: "absolute" as const,
-    width: `${handleSize * 2}px`,
-    height: `${handleSize * 2}px`,
+    width: `${handleScreenSize * 2}px`,
+    height: `${handleScreenSize * 2}px`,
     backgroundColor: "#2563eb",
     border: "2px solid white",
     borderRadius: "2px",
@@ -142,49 +142,52 @@ export default function ImageCropOverlay({
 
   const cornerHandleStyle = {
     ...handleStyle,
-    width: `${handleSize * 2}px`,
-    height: `${handleSize * 2}px`,
+    width: `${handleScreenSize * 2}px`,
+    height: `${handleScreenSize * 2}px`,
   };
 
   const sideHandleStyle = {
     ...handleStyle,
-    width: `${handleSize}px`,
-    height: `${handleSize * 2}px`,
+    width: `${handleScreenSize}px`,
+    height: `${handleScreenSize * 2}px`,
   };
 
   return (
     <div
       ref={containerRef}
       style={{
-        position: "absolute",
+        position: "fixed",
         left: `${nodeX}px`,
         top: `${nodeY}px`,
-        width: `${nodeWidth}px`,
-        height: `${nodeHeight}px`,
+        width: `${nodeWidth * zoom}px`,
+        height: `${nodeHeight * zoom}px`,
         pointerEvents: "none",
+        zIndex: 999,
       }}
     >
-      {/* Darkened areas outside crop box */}
+      {/* Darkened areas outside crop box + blue outline as fixed SVG overlay */}
       <svg
         style={{
           position: "absolute",
           top: 0,
           left: 0,
-          width: "100%",
-          height: "100%",
+          width: `${nodeWidth * zoom}px`,
+          height: `${nodeHeight * zoom}px`,
           pointerEvents: "none",
         }}
+        viewBox={`0 0 ${nodeWidth} ${nodeHeight}`}
+        preserveAspectRatio="none"
       >
         {/* Top dark area */}
         {cropBox.y > 0 && (
-          <rect x="0" y="0" width="100%" height={cropBox.y} fill="rgba(0,0,0,0.5)" />
+          <rect x="0" y="0" width={nodeWidth} height={cropBox.y} fill="rgba(0,0,0,0.5)" />
         )}
         {/* Bottom dark area */}
         {cropBox.y + cropBox.height < nodeHeight && (
           <rect
             x="0"
             y={cropBox.y + cropBox.height}
-            width="100%"
+            width={nodeWidth}
             height={nodeHeight - (cropBox.y + cropBox.height)}
             fill="rgba(0,0,0,0.5)"
           />
@@ -203,7 +206,7 @@ export default function ImageCropOverlay({
             fill="rgba(0,0,0,0.5)"
           />
         )}
-        {/* Blue outline */}
+        {/* Blue outline on image border */}
         <rect
           x={cropBox.x}
           y={cropBox.y}
@@ -211,7 +214,7 @@ export default function ImageCropOverlay({
           height={cropBox.height}
           fill="none"
           stroke="#2563eb"
-          strokeWidth="2"
+          strokeWidth={1 / zoom}
           pointerEvents="none"
         />
       </svg>
@@ -221,8 +224,8 @@ export default function ImageCropOverlay({
         onMouseDown={handleMouseDown("tl")}
         style={{
           ...cornerHandleStyle,
-          left: `${cropBox.x - handleSize}px`,
-          top: `${cropBox.y - handleSize}px`,
+          left: `${(cropBox.x - handleScreenSize) * zoom}px`,
+          top: `${(cropBox.y - handleScreenSize) * zoom}px`,
           cursor: "nwse-resize",
           pointerEvents: "auto",
         }}
@@ -231,8 +234,8 @@ export default function ImageCropOverlay({
         onMouseDown={handleMouseDown("tr")}
         style={{
           ...cornerHandleStyle,
-          right: `${nodeWidth - (cropBox.x + cropBox.width) - handleSize}px`,
-          top: `${cropBox.y - handleSize}px`,
+          right: `${(nodeWidth - (cropBox.x + cropBox.width) - handleScreenSize) * zoom}px`,
+          top: `${(cropBox.y - handleScreenSize) * zoom}px`,
           cursor: "nesw-resize",
           pointerEvents: "auto",
         }}
@@ -241,8 +244,8 @@ export default function ImageCropOverlay({
         onMouseDown={handleMouseDown("bl")}
         style={{
           ...cornerHandleStyle,
-          left: `${cropBox.x - handleSize}px`,
-          bottom: `${nodeHeight - (cropBox.y + cropBox.height) - handleSize}px`,
+          left: `${(cropBox.x - handleScreenSize) * zoom}px`,
+          bottom: `${(nodeHeight - (cropBox.y + cropBox.height) - handleScreenSize) * zoom}px`,
           cursor: "nesw-resize",
           pointerEvents: "auto",
         }}
@@ -251,8 +254,8 @@ export default function ImageCropOverlay({
         onMouseDown={handleMouseDown("br")}
         style={{
           ...cornerHandleStyle,
-          right: `${nodeWidth - (cropBox.x + cropBox.width) - handleSize}px`,
-          bottom: `${nodeHeight - (cropBox.y + cropBox.height) - handleSize}px`,
+          right: `${(nodeWidth - (cropBox.x + cropBox.width) - handleScreenSize) * zoom}px`,
+          bottom: `${(nodeHeight - (cropBox.y + cropBox.height) - handleScreenSize) * zoom}px`,
           cursor: "nwse-resize",
           pointerEvents: "auto",
         }}
@@ -263,8 +266,8 @@ export default function ImageCropOverlay({
         onMouseDown={handleMouseDown("t")}
         style={{
           ...sideHandleStyle,
-          left: `${cropBox.x + cropBox.width / 2 - handleSize / 2}px`,
-          top: `${cropBox.y - handleSize}px`,
+          left: `${(cropBox.x + cropBox.width / 2 - handleScreenSize / 2) * zoom}px`,
+          top: `${(cropBox.y - handleScreenSize) * zoom}px`,
           cursor: "ns-resize",
           pointerEvents: "auto",
         }}
@@ -273,8 +276,8 @@ export default function ImageCropOverlay({
         onMouseDown={handleMouseDown("b")}
         style={{
           ...sideHandleStyle,
-          left: `${cropBox.x + cropBox.width / 2 - handleSize / 2}px`,
-          bottom: `${nodeHeight - (cropBox.y + cropBox.height) - handleSize}px`,
+          left: `${(cropBox.x + cropBox.width / 2 - handleScreenSize / 2) * zoom}px`,
+          bottom: `${(nodeHeight - (cropBox.y + cropBox.height) - handleScreenSize) * zoom}px`,
           cursor: "ns-resize",
           pointerEvents: "auto",
         }}
@@ -283,10 +286,8 @@ export default function ImageCropOverlay({
         onMouseDown={handleMouseDown("l")}
         style={{
           ...sideHandleStyle,
-          left: `${cropBox.x - handleSize}px`,
-          top: `${cropBox.y + cropBox.height / 2 - handleSize}px`,
-          width: `${handleSize * 2}px`,
-          height: `${handleSize}px`,
+          left: `${(cropBox.x - handleScreenSize) * zoom}px`,
+          top: `${(cropBox.y + cropBox.height / 2 - handleScreenSize) * zoom}px`,
           cursor: "ew-resize",
           pointerEvents: "auto",
         }}
@@ -295,10 +296,8 @@ export default function ImageCropOverlay({
         onMouseDown={handleMouseDown("r")}
         style={{
           ...sideHandleStyle,
-          right: `${nodeWidth - (cropBox.x + cropBox.width) - handleSize}px`,
-          top: `${cropBox.y + cropBox.height / 2 - handleSize}px`,
-          width: `${handleSize * 2}px`,
-          height: `${handleSize}px`,
+          right: `${(nodeWidth - (cropBox.x + cropBox.width) - handleScreenSize) * zoom}px`,
+          top: `${(cropBox.y + cropBox.height / 2 - handleScreenSize) * zoom}px`,
           cursor: "ew-resize",
           pointerEvents: "auto",
         }}
