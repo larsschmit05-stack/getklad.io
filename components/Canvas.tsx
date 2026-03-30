@@ -17,7 +17,9 @@ import type {
   Tool,
   NodeProps,
   ActiveStyle,
+  ImageProps,
 } from "@/lib/canvas/types";
+import { cropImagePixels } from "@/lib/canvas/cropImage";
 import {
   canvasReducer,
   createInitialState,
@@ -140,6 +142,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
     nodeId: string;
     cropBox: { x: number; y: number; width: number; height: number };
   } | null>(null);
+  const cropModeRef = useRef(cropMode);
+  cropModeRef.current = cropMode;
   const spaceDownRef = useRef(false);
   const clipboardRef = useRef<CanvasNode[]>([]);
   const [hasClipboard, setHasClipboard] = useState(false);
@@ -549,6 +553,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 
     function onWheel(e: WheelEvent) {
       e.preventDefault();
+      if (cropModeRef.current) return;
       const s = stateRef.current;
       const cam = s.document.camera;
 
@@ -616,6 +621,9 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
     (e: ReactPointerEvent<HTMLDivElement>) => {
       // Close context menu on any pointer down
       setCanvasContextMenu(null);
+
+      // Block all canvas interactions while crop mode is active
+      if (cropModeRef.current) return;
 
       const s = stateRef.current;
       const cam = s.document.camera;
@@ -805,6 +813,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 
   const handlePointerMove = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (cropModeRef.current) return;
       const mode = interaction.current.dragMode;
       const s = stateRef.current;
       const cam = s.document.camera;
@@ -1971,20 +1980,42 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             onCropChange={(newBox) => {
               setCropMode((prev) => (prev ? { ...prev, cropBox: newBox } : null));
             }}
-            onCropEnd={() => {
-              // Auto-save crop — resize node to match crop box
-              if (node.type === "image" && cropMode) {
+            onConfirm={async (finalCropBox) => {
+              if (node.type !== "image" || !cropMode) return;
+              const imgProps = node.props as { type: "image" } & ImageProps;
+              try {
+                const result = await cropImagePixels(
+                  imgProps.src,
+                  finalCropBox,
+                  node.width,
+                  node.height,
+                  imgProps.fit || "contain",
+                  imgProps.mimeType,
+                );
                 dispatch({
                   type: "RESIZE_NODE",
                   nodeId: cropMode.nodeId,
-                  x: node.x + cropMode.cropBox.x,
-                  y: node.y + cropMode.cropBox.y,
-                  width: cropMode.cropBox.width,
-                  height: cropMode.cropBox.height,
+                  x: node.x + finalCropBox.x,
+                  y: node.y + finalCropBox.y,
+                  width: finalCropBox.width,
+                  height: finalCropBox.height,
+                  props: {
+                    type: "image",
+                    src: result.dataUrl,
+                    alt: imgProps.alt,
+                    opacity: imgProps.opacity,
+                    fit: "contain",
+                    mimeType: imgProps.mimeType,
+                    originalWidth: result.width,
+                    originalHeight: result.height,
+                  },
                 });
+              } catch {
+                // Crop failed — silently cancel
               }
               setCropMode(null);
             }}
+            onCancel={() => setCropMode(null)}
           />
         );
       })()}

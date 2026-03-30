@@ -16,7 +16,8 @@ interface ImageCropOverlayProps {
   nodeY: number;
   zoom: number;
   onCropChange: (cropBox: CropBox) => void;
-  onCropEnd: (cropBox: CropBox) => void;
+  onConfirm: (cropBox: CropBox) => void;
+  onCancel: () => void;
 }
 
 type Handle = "tl" | "tr" | "bl" | "br" | "t" | "b" | "l" | "r";
@@ -28,7 +29,8 @@ export default function ImageCropOverlay({
   nodeY,
   zoom,
   onCropChange,
-  onCropEnd,
+  onConfirm,
+  onCancel,
 }: ImageCropOverlayProps) {
   const [cropBox, setCropBox] = useState<CropBox>({
     x: 0,
@@ -38,15 +40,18 @@ export default function ImageCropOverlay({
   });
   const [draggingHandle, setDraggingHandle] = useState<Handle | null>(null);
   const dragStateRef = useRef<{ handle: Handle | null }>({ handle: null });
+  const cropBoxRef = useRef(cropBox);
+  cropBoxRef.current = cropBox;
+  const overlayRef = useRef<HTMLDivElement>(null);
 
-  const handleMouseDown = (handle: Handle) => (e: React.MouseEvent) => {
+  const handlePointerDown = (handle: Handle) => (e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
     dragStateRef.current.handle = handle;
     setDraggingHandle(handle);
   };
 
-  const handleMouseMove = useCallback((e: MouseEvent) => {
+  const handlePointerMove = useCallback((e: PointerEvent) => {
     const handle = dragStateRef.current.handle;
     if (!handle) return;
 
@@ -55,7 +60,7 @@ export default function ImageCropOverlay({
     const minSize = 20;
 
     setCropBox((prev) => {
-      let newBox = { ...prev };
+      const newBox = { ...prev };
 
       switch (handle) {
         case "tl":
@@ -105,29 +110,65 @@ export default function ImageCropOverlay({
     });
   }, [zoom, nodeWidth, nodeHeight, onCropChange]);
 
-  const handleMouseUp = useCallback(() => {
+  const handlePointerUp = useCallback(() => {
     if (dragStateRef.current.handle) {
-      onCropEnd(cropBox);
       dragStateRef.current.handle = null;
       setDraggingHandle(null);
     }
-  }, [cropBox, onCropEnd]);
+  }, []);
 
   useEffect(() => {
     if (draggingHandle) {
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
+      document.addEventListener("pointermove", handlePointerMove);
+      document.addEventListener("pointerup", handlePointerUp);
       return () => {
-        document.removeEventListener("mousemove", handleMouseMove);
-        document.removeEventListener("mouseup", handleMouseUp);
+        document.removeEventListener("pointermove", handlePointerMove);
+        document.removeEventListener("pointerup", handlePointerUp);
       };
     }
-  }, [draggingHandle, handleMouseMove, handleMouseUp]);
+  }, [draggingHandle, handlePointerMove, handlePointerUp]);
+
+  // Keyboard: Enter = confirm, Escape = cancel
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        e.stopPropagation();
+        onConfirm(cropBoxRef.current);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onCancel();
+      }
+    };
+    document.addEventListener("keydown", handler, true);
+    return () => document.removeEventListener("keydown", handler, true);
+  }, [onConfirm, onCancel]);
+
+  // Click outside crop handles = confirm crop
+  useEffect(() => {
+    const handler = (e: PointerEvent) => {
+      // If clicking on a crop handle, ignore (those have stopPropagation)
+      // This fires on clicks outside the overlay or on the dimmed areas
+      if (!overlayRef.current?.contains(e.target as Node)) {
+        onConfirm(cropBoxRef.current);
+      }
+    };
+    // Use timeout so the initial click that activates crop mode doesn't immediately confirm
+    const timer = setTimeout(() => {
+      document.addEventListener("pointerdown", handler);
+    }, 100);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("pointerdown", handler);
+    };
+  }, [onConfirm]);
 
   const handleScreenSize = 10;
 
   return (
     <div
+      ref={overlayRef}
       style={{
         position: "fixed",
         left: `${nodeX}px`,
@@ -192,9 +233,9 @@ export default function ImageCropOverlay({
         />
       </svg>
 
-      {/* Top-left corner (┌) */}
+      {/* Top-left corner */}
       <svg
-        onMouseDown={handleMouseDown("tl")}
+        onPointerDown={handlePointerDown("tl")}
         style={{
           position: "absolute",
           left: `${(cropBox.x - handleScreenSize) * zoom}px`,
@@ -210,9 +251,9 @@ export default function ImageCropOverlay({
         <line x1="0" y1="10" x2="10" y2="10" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
       </svg>
 
-      {/* Top-right corner (┓) */}
+      {/* Top-right corner */}
       <svg
-        onMouseDown={handleMouseDown("tr")}
+        onPointerDown={handlePointerDown("tr")}
         style={{
           position: "absolute",
           right: `${(nodeWidth - (cropBox.x + cropBox.width) - handleScreenSize) * zoom}px`,
@@ -228,9 +269,9 @@ export default function ImageCropOverlay({
         <line x1="10" y1="10" x2="20" y2="10" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
       </svg>
 
-      {/* Bottom-left corner (└) */}
+      {/* Bottom-left corner */}
       <svg
-        onMouseDown={handleMouseDown("bl")}
+        onPointerDown={handlePointerDown("bl")}
         style={{
           position: "absolute",
           left: `${(cropBox.x - handleScreenSize) * zoom}px`,
@@ -246,9 +287,9 @@ export default function ImageCropOverlay({
         <line x1="0" y1="10" x2="10" y2="10" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
       </svg>
 
-      {/* Bottom-right corner (┘) */}
+      {/* Bottom-right corner */}
       <svg
-        onMouseDown={handleMouseDown("br")}
+        onPointerDown={handlePointerDown("br")}
         style={{
           position: "absolute",
           right: `${(nodeWidth - (cropBox.x + cropBox.width) - handleScreenSize) * zoom}px`,
@@ -264,9 +305,9 @@ export default function ImageCropOverlay({
         <line x1="10" y1="10" x2="20" y2="10" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
       </svg>
 
-      {/* Top handle (horizontal bar) */}
+      {/* Top handle */}
       <div
-        onMouseDown={handleMouseDown("t")}
+        onPointerDown={handlePointerDown("t")}
         style={{
           position: "absolute",
           left: `${(cropBox.x + 30) * zoom}px`,
@@ -280,9 +321,9 @@ export default function ImageCropOverlay({
         }}
       />
 
-      {/* Bottom handle (horizontal bar) */}
+      {/* Bottom handle */}
       <div
-        onMouseDown={handleMouseDown("b")}
+        onPointerDown={handlePointerDown("b")}
         style={{
           position: "absolute",
           left: `${(cropBox.x + 30) * zoom}px`,
@@ -296,9 +337,9 @@ export default function ImageCropOverlay({
         }}
       />
 
-      {/* Left handle (vertical bar) */}
+      {/* Left handle */}
       <div
-        onMouseDown={handleMouseDown("l")}
+        onPointerDown={handlePointerDown("l")}
         style={{
           position: "absolute",
           left: `${(cropBox.x - 5) * zoom}px`,
@@ -312,9 +353,9 @@ export default function ImageCropOverlay({
         }}
       />
 
-      {/* Right handle (vertical bar) */}
+      {/* Right handle */}
       <div
-        onMouseDown={handleMouseDown("r")}
+        onPointerDown={handlePointerDown("r")}
         style={{
           position: "absolute",
           right: `${(nodeWidth - cropBox.x - cropBox.width - 5) * zoom}px`,
