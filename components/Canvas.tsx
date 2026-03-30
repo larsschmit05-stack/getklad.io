@@ -40,7 +40,6 @@ import Toolbar from "./canvas/Toolbar";
 import ZoomControls from "./canvas/ZoomControls";
 import SaveIndicator from "./canvas/SaveIndicator";
 import StylePanel from "./canvas/StylePanel";
-import AlignmentToolbar from "./canvas/AlignmentToolbar";
 import TextNode from "./canvas/nodes/TextNode";
 import StickyNode from "./canvas/nodes/StickyNode";
 import RectNode from "./canvas/nodes/RectNode";
@@ -1178,14 +1177,12 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       <StylePanel
         activeStyle={state.activeStyle}
         hasSelection={selection.nodeIds.size > 0 && !editingNodeId}
+        selectedNodeCount={selection.nodeIds.size}
         showTextSizes={selectedNodes.some((node) => node.type === "text")}
         onStyleChange={(partial) => {
           setStylePreviewNonce((value) => value + 1);
           dispatch({ type: "SET_ACTIVE_STYLE", style: partial });
         }}
-      />
-      <AlignmentToolbar
-        selectedNodeIds={Array.from(selection.nodeIds)}
         onAlign={(alignment) => {
           dispatch({
             type: "ALIGN_NODES",

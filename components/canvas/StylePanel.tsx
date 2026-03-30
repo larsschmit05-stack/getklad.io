@@ -1,12 +1,21 @@
 "use client";
 
+import {
+  AlignStartHorizontal,
+  AlignCenterHorizontal,
+  AlignEndHorizontal,
+  Columns,
+} from "lucide-react";
 import { PALETTE, type ActiveStyle, type StrokeStyle, type FillStyle } from "@/lib/canvas/types";
+import type { AlignmentType } from "@/lib/canvas/reducer";
 
 interface StylePanelProps {
   activeStyle: ActiveStyle;
   hasSelection: boolean;
+  selectedNodeCount?: number;
   showTextSizes?: boolean;
   onStyleChange: (style: Partial<ActiveStyle>) => void;
+  onAlign?: (alignment: AlignmentType) => void;
 }
 
 const TEXT_SIZES = [
@@ -16,11 +25,24 @@ const TEXT_SIZES = [
   { label: "XL", value: 48 },
 ] as const;
 
+const ALIGNMENT_BUTTONS: Array<{
+  alignment: AlignmentType;
+  icon: typeof AlignStartHorizontal;
+  tooltip: string;
+}> = [
+  { alignment: "left", icon: AlignStartHorizontal, tooltip: "Align Left" },
+  { alignment: "center-h", icon: AlignCenterHorizontal, tooltip: "Align Center" },
+  { alignment: "right", icon: AlignEndHorizontal, tooltip: "Align Right" },
+  { alignment: "distribute-h", icon: Columns, tooltip: "Distribute" },
+];
+
 export default function StylePanel({
   activeStyle,
   hasSelection,
+  selectedNodeCount = 1,
   showTextSizes = false,
   onStyleChange,
+  onAlign,
 }: StylePanelProps) {
   if (!hasSelection) return null;
 
@@ -273,6 +295,61 @@ export default function StylePanel({
           ))}
         </div>
       </div>
+
+      {/* Alignment (only for multiple selections) */}
+      {selectedNodeCount >= 2 && onAlign && (
+        <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" }}>
+          <label
+            style={{
+              display: "block",
+              fontSize: "11px",
+              fontWeight: "600",
+              color: "var(--klad-ink3, #7a756e)",
+              marginBottom: "6px",
+              textTransform: "uppercase",
+              letterSpacing: "0.5px",
+            }}
+          >
+            Arrange
+          </label>
+          <div style={{ display: "flex", gap: "4px" }}>
+            {ALIGNMENT_BUTTONS.map(({ alignment, icon: Icon, tooltip }) => (
+              <button
+                key={alignment}
+                type="button"
+                onClick={() => onAlign(alignment)}
+                title={tooltip}
+                style={{
+                  flex: 1,
+                  height: "32px",
+                  padding: "4px",
+                  fontSize: "14px",
+                  color: "var(--klad-ink, #1a1814)",
+                  backgroundColor: "transparent",
+                  border: "1px solid var(--klad-ink3, #7a756e)",
+                  borderRadius: "2px",
+                  cursor: "pointer",
+                  transition: "background-color 0.1s",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  pointerEvents: "auto",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.backgroundColor =
+                    "rgba(0,0,0,0.06)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.backgroundColor =
+                    "transparent";
+                }}
+              >
+                <Icon size={16} />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
