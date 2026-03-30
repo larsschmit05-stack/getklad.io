@@ -36,90 +36,84 @@ export default function ImageCropOverlay({
     initialCropBox || { x: 0, y: 0, width: nodeWidth, height: nodeHeight }
   );
   const [draggingHandle, setDraggingHandle] = useState<Handle | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const dragStateRef = useRef<{ handle: Handle | null }>({ handle: null });
 
   const handleMouseDown = (handle: Handle) => (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    dragStateRef.current.handle = handle;
     setDraggingHandle(handle);
   };
 
-  const handleMouseMove = useCallback(
-    (e: MouseEvent) => {
-      if (!draggingHandle || !containerRef.current) return;
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    const handle = dragStateRef.current.handle;
+    if (!handle) return;
 
-      const container = containerRef.current.getBoundingClientRect();
-      const deltaX = e.movementX / zoom;
-      const deltaY = e.movementY / zoom;
+    const deltaX = e.movementX / zoom;
+    const deltaY = e.movementY / zoom;
+    const minSize = 20;
 
-      const minSize = 20; // Minimum crop box size
+    setCropBox((prev) => {
+      let newBox = { ...prev };
 
-      setCropBox((prev) => {
-        let newBox = { ...prev };
+      switch (handle) {
+        case "tl":
+          newBox.x = Math.max(0, Math.min(prev.x + deltaX, prev.x + prev.width - minSize));
+          newBox.y = Math.max(0, Math.min(prev.y + deltaY, prev.y + prev.height - minSize));
+          newBox.width = prev.width + (prev.x - newBox.x);
+          newBox.height = prev.height + (prev.y - newBox.y);
+          break;
+        case "tr":
+          newBox.y = Math.max(0, Math.min(prev.y + deltaY, prev.y + prev.height - minSize));
+          newBox.width = Math.max(minSize, prev.width + deltaX);
+          newBox.height = prev.height + (prev.y - newBox.y);
+          break;
+        case "bl":
+          newBox.x = Math.max(0, Math.min(prev.x + deltaX, prev.x + prev.width - minSize));
+          newBox.width = prev.width + (prev.x - newBox.x);
+          newBox.height = Math.max(minSize, prev.height + deltaY);
+          break;
+        case "br":
+          newBox.width = Math.max(minSize, prev.width + deltaX);
+          newBox.height = Math.max(minSize, prev.height + deltaY);
+          break;
+        case "t":
+          newBox.y = Math.max(0, Math.min(prev.y + deltaY, prev.y + prev.height - minSize));
+          newBox.height = prev.height + (prev.y - newBox.y);
+          break;
+        case "b":
+          newBox.height = Math.max(minSize, prev.height + deltaY);
+          break;
+        case "l":
+          newBox.x = Math.max(0, Math.min(prev.x + deltaX, prev.x + prev.width - minSize));
+          newBox.width = prev.width + (prev.x - newBox.x);
+          break;
+        case "r":
+          newBox.width = Math.max(minSize, prev.width + deltaX);
+          break;
+      }
 
-        switch (draggingHandle) {
-          case "tl":
-            newBox.x = Math.max(0, Math.min(prev.x + deltaX, prev.x + prev.width - minSize));
-            newBox.y = Math.max(0, Math.min(prev.y + deltaY, prev.y + prev.height - minSize));
-            newBox.width = prev.width + (prev.x - newBox.x);
-            newBox.height = prev.height + (prev.y - newBox.y);
-            break;
-          case "tr":
-            newBox.y = Math.max(0, Math.min(prev.y + deltaY, prev.y + prev.height - minSize));
-            newBox.width = Math.max(minSize, prev.width + deltaX);
-            newBox.height = prev.height + (prev.y - newBox.y);
-            break;
-          case "bl":
-            newBox.x = Math.max(0, Math.min(prev.x + deltaX, prev.x + prev.width - minSize));
-            newBox.width = prev.width + (prev.x - newBox.x);
-            newBox.height = Math.max(minSize, prev.height + deltaY);
-            break;
-          case "br":
-            newBox.width = Math.max(minSize, prev.width + deltaX);
-            newBox.height = Math.max(minSize, prev.height + deltaY);
-            break;
-          case "t":
-            newBox.y = Math.max(0, Math.min(prev.y + deltaY, prev.y + prev.height - minSize));
-            newBox.height = prev.height + (prev.y - newBox.y);
-            break;
-          case "b":
-            newBox.height = Math.max(minSize, prev.height + deltaY);
-            break;
-          case "l":
-            newBox.x = Math.max(0, Math.min(prev.x + deltaX, prev.x + prev.width - minSize));
-            newBox.width = prev.width + (prev.x - newBox.x);
-            break;
-          case "r":
-            newBox.width = Math.max(minSize, prev.width + deltaX);
-            break;
-        }
+      // Clamp to node bounds
+      newBox.x = Math.max(0, Math.min(newBox.x, nodeWidth - newBox.width));
+      newBox.y = Math.max(0, Math.min(newBox.y, nodeHeight - newBox.height));
+      newBox.width = Math.min(newBox.width, nodeWidth - newBox.x);
+      newBox.height = Math.min(newBox.height, nodeHeight - newBox.y);
 
-        // Clamp to node bounds
-        newBox.x = Math.max(0, Math.min(newBox.x, nodeWidth - newBox.width));
-        newBox.y = Math.max(0, Math.min(newBox.y, nodeHeight - newBox.height));
-        newBox.width = Math.min(newBox.width, nodeWidth - newBox.x);
-        newBox.height = Math.min(newBox.height, nodeHeight - newBox.y);
-
-        onCropChange(newBox);
-        return newBox;
-      });
-    },
-    [draggingHandle, zoom, nodeWidth, nodeHeight, onCropChange]
-  );
+      onCropChange(newBox);
+      return newBox;
+    });
+  }, [zoom, nodeWidth, nodeHeight, onCropChange]);
 
   const handleMouseUp = useCallback(() => {
-    if (draggingHandle) {
+    if (dragStateRef.current.handle) {
       onCropEnd(cropBox);
+      dragStateRef.current.handle = null;
       setDraggingHandle(null);
     }
-  }, [draggingHandle, cropBox, onCropEnd]);
-
-  // Add/remove event listeners
-  const handleRef = useRef<Handle | null>(null);
-  handleRef.current = draggingHandle;
+  }, [cropBox, onCropEnd]);
 
   useEffect(() => {
-    if (handleRef.current) {
+    if (draggingHandle) {
       document.addEventListener("mousemove", handleMouseMove);
       document.addEventListener("mouseup", handleMouseUp);
       return () => {
@@ -127,34 +121,12 @@ export default function ImageCropOverlay({
         document.removeEventListener("mouseup", handleMouseUp);
       };
     }
-  }, [handleMouseMove, handleMouseUp]);
+  }, [draggingHandle, handleMouseMove, handleMouseUp]);
 
-  const handleScreenSize = 10; // Fixed screen pixels for easy grabbing
-  const handleStyle = {
-    position: "absolute" as const,
-    width: `${handleScreenSize * 2}px`,
-    height: `${handleScreenSize * 2}px`,
-    backgroundColor: "#2563eb",
-    border: "2px solid white",
-    borderRadius: "2px",
-    cursor: "pointer",
-  };
-
-  const cornerHandleStyle = {
-    ...handleStyle,
-    width: `${handleScreenSize * 2}px`,
-    height: `${handleScreenSize * 2}px`,
-  };
-
-  const sideHandleStyle = {
-    ...handleStyle,
-    width: `${handleScreenSize}px`,
-    height: `${handleScreenSize * 2}px`,
-  };
+  const handleScreenSize = 10;
 
   return (
     <div
-      ref={containerRef}
       style={{
         position: "fixed",
         left: `${nodeX}px`,
@@ -165,7 +137,7 @@ export default function ImageCropOverlay({
         zIndex: 999,
       }}
     >
-      {/* Darkened areas outside crop box + blue outline as fixed SVG overlay */}
+      {/* Overlay with darkened areas and blue outline */}
       <svg
         style={{
           position: "absolute",
@@ -206,7 +178,7 @@ export default function ImageCropOverlay({
             fill="rgba(0,0,0,0.5)"
           />
         )}
-        {/* Blue outline on image border */}
+        {/* Blue outline */}
         <rect
           x={cropBox.x}
           y={cropBox.y}
@@ -219,8 +191,7 @@ export default function ImageCropOverlay({
         />
       </svg>
 
-      {/* Corner handles (L-shaped) */}
-      {/* Top-left */}
+      {/* Top-left corner (┌) */}
       <svg
         onMouseDown={handleMouseDown("tl")}
         style={{
@@ -234,11 +205,11 @@ export default function ImageCropOverlay({
         }}
         viewBox="0 0 20 20"
       >
-        <line x1="10" y1="0" x2="10" y2="10" stroke="#2563eb" strokeWidth="3" />
-        <line x1="0" y1="10" x2="10" y2="10" stroke="#2563eb" strokeWidth="3" />
+        <line x1="10" y1="0" x2="10" y2="10" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
+        <line x1="0" y1="10" x2="10" y2="10" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
       </svg>
 
-      {/* Top-right */}
+      {/* Top-right corner (┓) */}
       <svg
         onMouseDown={handleMouseDown("tr")}
         style={{
@@ -252,11 +223,11 @@ export default function ImageCropOverlay({
         }}
         viewBox="0 0 20 20"
       >
-        <line x1="10" y1="0" x2="10" y2="10" stroke="#2563eb" strokeWidth="3" />
-        <line x1="10" y1="10" x2="20" y2="10" stroke="#2563eb" strokeWidth="3" />
+        <line x1="10" y1="0" x2="10" y2="10" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
+        <line x1="10" y1="10" x2="20" y2="10" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
       </svg>
 
-      {/* Bottom-left */}
+      {/* Bottom-left corner (└) */}
       <svg
         onMouseDown={handleMouseDown("bl")}
         style={{
@@ -270,11 +241,11 @@ export default function ImageCropOverlay({
         }}
         viewBox="0 0 20 20"
       >
-        <line x1="10" y1="10" x2="10" y2="20" stroke="#2563eb" strokeWidth="3" />
-        <line x1="0" y1="10" x2="10" y2="10" stroke="#2563eb" strokeWidth="3" />
+        <line x1="10" y1="10" x2="10" y2="20" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
+        <line x1="0" y1="10" x2="10" y2="10" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
       </svg>
 
-      {/* Bottom-right */}
+      {/* Bottom-right corner (┘) */}
       <svg
         onMouseDown={handleMouseDown("br")}
         style={{
@@ -288,72 +259,68 @@ export default function ImageCropOverlay({
         }}
         viewBox="0 0 20 20"
       >
-        <line x1="10" y1="10" x2="10" y2="20" stroke="#2563eb" strokeWidth="3" />
-        <line x1="10" y1="10" x2="20" y2="10" stroke="#2563eb" strokeWidth="3" />
+        <line x1="10" y1="10" x2="10" y2="20" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
+        <line x1="10" y1="10" x2="20" y2="10" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
       </svg>
 
-      {/* Top handle (horizontal) */}
+      {/* Top handle (horizontal bar) */}
       <div
         onMouseDown={handleMouseDown("t")}
         style={{
           position: "absolute",
           left: `${(cropBox.x + 30) * zoom}px`,
           right: `${(nodeWidth - cropBox.x - cropBox.width + 30) * zoom}px`,
-          top: `${(cropBox.y - handleScreenSize / 2) * zoom}px`,
-          height: `${handleScreenSize * zoom}px`,
+          top: `${(cropBox.y - 5) * zoom}px`,
+          height: `${10 * zoom}px`,
           backgroundColor: "#2563eb",
-          borderRadius: "2px",
           cursor: "ns-resize",
           pointerEvents: "auto",
           minWidth: "30px",
         }}
       />
 
-      {/* Bottom handle (horizontal) */}
+      {/* Bottom handle (horizontal bar) */}
       <div
         onMouseDown={handleMouseDown("b")}
         style={{
           position: "absolute",
           left: `${(cropBox.x + 30) * zoom}px`,
           right: `${(nodeWidth - cropBox.x - cropBox.width + 30) * zoom}px`,
-          bottom: `${(nodeHeight - cropBox.y - cropBox.height - handleScreenSize / 2) * zoom}px`,
-          height: `${handleScreenSize * zoom}px`,
+          bottom: `${(nodeHeight - cropBox.y - cropBox.height - 5) * zoom}px`,
+          height: `${10 * zoom}px`,
           backgroundColor: "#2563eb",
-          borderRadius: "2px",
           cursor: "ns-resize",
           pointerEvents: "auto",
           minWidth: "30px",
         }}
       />
 
-      {/* Left handle (vertical) */}
+      {/* Left handle (vertical bar) */}
       <div
         onMouseDown={handleMouseDown("l")}
         style={{
           position: "absolute",
-          left: `${(cropBox.x - handleScreenSize / 2) * zoom}px`,
+          left: `${(cropBox.x - 5) * zoom}px`,
           top: `${(cropBox.y + 30) * zoom}px`,
           bottom: `${(nodeHeight - cropBox.y - cropBox.height + 30) * zoom}px`,
-          width: `${handleScreenSize * zoom}px`,
+          width: `${10 * zoom}px`,
           backgroundColor: "#2563eb",
-          borderRadius: "2px",
           cursor: "ew-resize",
           pointerEvents: "auto",
           minHeight: "30px",
         }}
       />
 
-      {/* Right handle (vertical) */}
+      {/* Right handle (vertical bar) */}
       <div
         onMouseDown={handleMouseDown("r")}
         style={{
           position: "absolute",
-          right: `${(nodeWidth - cropBox.x - cropBox.width - handleScreenSize / 2) * zoom}px`,
+          right: `${(nodeWidth - cropBox.x - cropBox.width - 5) * zoom}px`,
           top: `${(cropBox.y + 30) * zoom}px`,
           bottom: `${(nodeHeight - cropBox.y - cropBox.height + 30) * zoom}px`,
-          width: `${handleScreenSize * zoom}px`,
+          width: `${10 * zoom}px`,
           backgroundColor: "#2563eb",
-          borderRadius: "2px",
           cursor: "ew-resize",
           pointerEvents: "auto",
           minHeight: "30px",
