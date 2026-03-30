@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import type { CanvasNode, Camera } from "@/lib/canvas/types";
 import { getSelectionFrameBounds } from "@/lib/canvas/geometry";
 import { arrowheadPath } from "./nodes/ArrowNode";
+import { smoothPath } from "./nodes/FreehandNode";
 
 interface SelectionOverlayProps {
   selectedNodes: CanvasNode[];
@@ -57,8 +58,8 @@ export default function SelectionOverlay({
             height={Math.abs(marquee.height)}
             fill="rgba(59, 130, 246, 0.1)"
             stroke="#3b82f6"
-            strokeWidth={1}
-            strokeDasharray="4 2"
+            strokeWidth={1 / camera.zoom}
+            strokeDasharray={`${4 / camera.zoom} ${2 / camera.zoom}`}
             pointerEvents="none"
           />
         )}
@@ -78,8 +79,8 @@ export default function SelectionOverlay({
             height={Math.abs(marquee.height)}
             fill="rgba(59, 130, 246, 0.1)"
             stroke="#3b82f6"
-            strokeWidth={1}
-            strokeDasharray="4 2"
+            strokeWidth={1 / camera.zoom}
+            strokeDasharray={`${4 / camera.zoom} ${2 / camera.zoom}`}
             pointerEvents="none"
           />
         )}
@@ -112,8 +113,8 @@ export default function SelectionOverlay({
           height={Math.abs(marquee.height)}
           fill="rgba(59, 130, 246, 0.1)"
           stroke="#3b82f6"
-          strokeWidth={1}
-          strokeDasharray="4 2"
+          strokeWidth={1 / camera.zoom}
+          strokeDasharray={`${4 / camera.zoom} ${2 / camera.zoom}`}
           pointerEvents="none"
         />
       )}
@@ -128,17 +129,52 @@ function HoverOutline({
   node: CanvasNode;
   camera: Camera;
 }) {
+  const effectiveZoom = Math.max(camera.zoom, 1.0);
+
   if (node.props.type === "arrow") {
     const { dx, dy } = node.props;
     return (
-      <line
-        x1={node.x}
-        y1={node.y}
-        x2={node.x + dx}
-        y2={node.y + dy}
+      <g pointerEvents="none" opacity={0.9}>
+        <line
+          x1={node.x}
+          y1={node.y}
+          x2={node.x + dx}
+          y2={node.y + dy}
+          stroke="#3b82f6"
+          strokeWidth={Math.max(1, 1.5 / effectiveZoom)}
+          strokeLinecap="round"
+        />
+        <path
+          d={arrowheadPath(node.x, node.y, node.x + dx, node.y + dy, 10)}
+          stroke="#3b82f6"
+          strokeWidth={Math.max(1, 1.5 / effectiveZoom)}
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </g>
+    );
+  }
+
+  if (node.props.type === "freehand") {
+    const path = smoothPath(node.props.points);
+    if (!path) return null;
+    return (
+      <path
+        d={path}
+        transform={`translate(${node.x}, ${node.y})`}
+        fill="none"
         stroke="#3b82f6"
-        strokeWidth={Math.max(1, 1.5 / camera.zoom)}
+        strokeWidth={Math.max(node.props.strokeWidth, 2 / effectiveZoom)}
+        strokeDasharray={
+          node.props.strokeStyle === "dashed"
+            ? `${node.props.strokeWidth * 6} ${node.props.strokeWidth * 4}`
+            : node.props.strokeStyle === "dotted"
+              ? `${node.props.strokeWidth} ${node.props.strokeWidth * 3}`
+              : undefined
+        }
         strokeLinecap="round"
+        strokeLinejoin="round"
         opacity={0.9}
         pointerEvents="none"
       />
@@ -146,7 +182,7 @@ function HoverOutline({
   }
 
   const frame = getSelectionFrameBounds(node, camera);
-  const strokeWidth = Math.max(1, 1.5 / camera.zoom);
+  const strokeWidth = Math.max(1, 1.5 / effectiveZoom);
 
   if (node.props.type === "ellipse") {
     return (
@@ -170,7 +206,7 @@ function HoverOutline({
       y={frame.minY}
       width={Math.max(0, frame.maxX - frame.minX)}
       height={Math.max(0, frame.maxY - frame.minY)}
-      rx={Math.max(2, 2 / camera.zoom)}
+      rx={Math.max(2, 2 / effectiveZoom)}
       fill="none"
       stroke="#3b82f6"
       strokeWidth={strokeWidth}
@@ -187,7 +223,10 @@ function SelectionHandles({
   node: CanvasNode;
   camera: Camera;
 }) {
-  const handleSize = HANDLE_SIZE_SCREEN / camera.zoom;
+  // Cap zoom divisor at 1.0 so handles shrink proportionally when zoomed out,
+  // but stay at fixed size when zoomed in
+  const effectiveZoom = Math.max(camera.zoom, 1.0);
+  const handleSize = HANDLE_SIZE_SCREEN / effectiveZoom;
 
   // Arrow: show internal blue arrow + 3 control points
   if (node.props.type === "arrow") {
@@ -214,13 +253,13 @@ function SelectionHandles({
           x2={endX}
           y2={endY}
           stroke="#3b82f6"
-          strokeWidth={Math.max(0.5, 1 / camera.zoom)}
+          strokeWidth={Math.max(0.5, 1 / effectiveZoom)}
           strokeLinecap="round"
         />
         <path
           d={arrowheadPath(startX, startY, endX, endY, arrowSize)}
           stroke="#3b82f6"
-          strokeWidth={Math.max(0.5, 1 / camera.zoom)}
+          strokeWidth={Math.max(0.5, 1 / effectiveZoom)}
           fill="none"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -233,7 +272,7 @@ function SelectionHandles({
           r={handleSize / 2}
           fill="white"
           stroke="#3b82f6"
-          strokeWidth={Math.max(0.5, 1 / camera.zoom)}
+          strokeWidth={Math.max(0.5, 1 / effectiveZoom)}
           style={{ cursor: "move" }}
         />
 
@@ -243,7 +282,7 @@ function SelectionHandles({
           r={handleSize / 2}
           fill="white"
           stroke="#3b82f6"
-          strokeWidth={Math.max(0.5, 1 / camera.zoom)}
+          strokeWidth={Math.max(0.5, 1 / effectiveZoom)}
           style={{ cursor: "move" }}
         />
 
@@ -253,7 +292,7 @@ function SelectionHandles({
           r={handleSize / 2}
           fill="white"
           stroke="#3b82f6"
-          strokeWidth={Math.max(0.5, 1 / camera.zoom)}
+          strokeWidth={Math.max(0.5, 1 / effectiveZoom)}
           style={{ cursor: "move" }}
         />
       </g>
@@ -271,8 +310,8 @@ function SelectionHandles({
   ) {
     const outlineStroke =
       "strokeWidth" in node.props
-        ? Math.max(0.5, Math.min(node.props.strokeWidth, 1.25) / camera.zoom)
-        : Math.max(0.5, 1 / camera.zoom);
+        ? Math.max(0.5, Math.min(node.props.strokeWidth, 1.25) / effectiveZoom)
+        : Math.max(0.5, 1 / effectiveZoom);
     const frame = getSelectionFrameBounds(node, camera);
     const corners: [string, number, number][] = [
       ["top-left", frame.minX, frame.minY],
@@ -309,7 +348,7 @@ function SelectionHandles({
             y={frame.minY}
             width={frame.maxX - frame.minX}
             height={frame.maxY - frame.minY}
-            rx={Math.max(2, 2 / camera.zoom)}
+            rx={Math.max(2, 2 / effectiveZoom)}
             fill="none"
             stroke="#3b82f6"
             strokeWidth={outlineStroke}
@@ -326,7 +365,7 @@ function SelectionHandles({
             rx={Math.max(1, handleSize / 4)}
             fill="white"
             stroke="#3b82f6"
-            strokeWidth={Math.max(0.5, 1.5 / camera.zoom)}
+            strokeWidth={Math.max(0.5, 1.5 / effectiveZoom)}
             style={{ cursor: getCursorForHandle(key) }}
           />
         ))}
@@ -374,7 +413,8 @@ function MultiSelectBoundingBox({
 
   const width = maxX - minX;
   const height = maxY - minY;
-  const strokeWidth = Math.max(0.5, 1.5 / camera.zoom);
+  const effectiveZoom = Math.max(camera.zoom, 1.0);
+  const strokeWidth = Math.max(0.5, 1.5 / effectiveZoom);
 
   return (
     <rect
@@ -385,7 +425,7 @@ function MultiSelectBoundingBox({
       fill="none"
       stroke="#3b82f6"
       strokeWidth={strokeWidth}
-      strokeDasharray="4 2"
+      strokeDasharray={`${4 / effectiveZoom} ${2 / effectiveZoom}`}
       pointerEvents="none"
     />
   );
