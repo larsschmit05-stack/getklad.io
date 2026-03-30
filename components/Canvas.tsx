@@ -1968,19 +1968,19 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             nodeX={screenPos.x}
             nodeY={screenPos.y}
             zoom={state.document.camera.zoom}
-            initialCropBox={cropMode.cropBox}
             onCropChange={(newBox) => {
               setCropMode((prev) => (prev ? { ...prev, cropBox: newBox } : null));
             }}
             onCropEnd={() => {
-              // Auto-save crop
-              if (node.type === "image") {
+              // Auto-save crop — resize node to match crop box
+              if (node.type === "image" && cropMode) {
                 dispatch({
-                  type: "UPDATE_NODE_PROPS",
+                  type: "RESIZE_NODE",
                   nodeId: cropMode.nodeId,
-                  props: {
-                    cropBox: cropMode.cropBox,
-                  } as Partial<NodeProps>,
+                  x: node.x + cropMode.cropBox.x,
+                  y: node.y + cropMode.cropBox.y,
+                  width: cropMode.cropBox.width,
+                  height: cropMode.cropBox.height,
                 });
               }
               setCropMode(null);

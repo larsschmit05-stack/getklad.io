@@ -15,7 +15,6 @@ interface ImageCropOverlayProps {
   nodeX: number;
   nodeY: number;
   zoom: number;
-  initialCropBox?: CropBox;
   onCropChange: (cropBox: CropBox) => void;
   onCropEnd: (cropBox: CropBox) => void;
 }
@@ -28,13 +27,15 @@ export default function ImageCropOverlay({
   nodeX,
   nodeY,
   zoom,
-  initialCropBox,
   onCropChange,
   onCropEnd,
 }: ImageCropOverlayProps) {
-  const [cropBox, setCropBox] = useState<CropBox>(
-    initialCropBox || { x: 0, y: 0, width: nodeWidth, height: nodeHeight }
-  );
+  const [cropBox, setCropBox] = useState<CropBox>({
+    x: 0,
+    y: 0,
+    width: nodeWidth,
+    height: nodeHeight,
+  });
   const [draggingHandle, setDraggingHandle] = useState<Handle | null>(null);
   const dragStateRef = useRef<{ handle: Handle | null }>({ handle: null });
 

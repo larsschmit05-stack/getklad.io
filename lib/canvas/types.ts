@@ -143,7 +143,6 @@ export type ImageProps = {
   mimeType?: string;
   originalWidth?: number;
   originalHeight?: number;
-  cropBox?: { x: number; y: number; width: number; height: number };
 };
 
 export type AiOutputProps = {
