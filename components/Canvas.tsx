@@ -991,9 +991,9 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
     const node = stateRef.current.document.nodes[nodeId];
     if (!node) return;
 
-    // Delete empty text and sticky nodes
+    // Delete empty text nodes
     const isEmpty =
-      (node.type === "text" || node.type === "sticky") &&
+      node.type === "text" &&
       "text" in node.props &&
       !(node.props.text as string).trim();
 
@@ -1364,33 +1364,48 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         </g>
       </svg>
 
-      {/* UI overlays */}
-      {activeTool === "select" && (
-        <ActionBar
-          canUndo={state.undoStack.length > 0}
-          canRedo={state.redoStack.length > 0}
-          hasSelection={selection.nodeIds.size > 0}
-          onUndo={() => dispatch({ type: "UNDO" })}
-          onRedo={() => dispatch({ type: "REDO" })}
-          onDelete={() => dispatch({ type: "DELETE_SELECTED" })}
-          onDuplicate={() => {
-            const ids = [...selection.nodeIds];
-            if (ids.length > 0) dispatch({ type: "DUPLICATE_NODES", nodeIds: ids });
+      {/* Toolbar group — ActionBar floats above the select button */}
+      <div
+        onPointerDown={(e) => e.stopPropagation()}
+        style={{
+          position: "fixed",
+          left: "50%",
+          bottom: "16px",
+          transform: "translateX(-50%)",
+          zIndex: 50,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-start",
+          gap: "8px",
+        }}
+      >
+        {activeTool === "select" && (
+          <ActionBar
+            canUndo={state.undoStack.length > 0}
+            canRedo={state.redoStack.length > 0}
+            hasSelection={selection.nodeIds.size > 0}
+            onUndo={() => dispatch({ type: "UNDO" })}
+            onRedo={() => dispatch({ type: "REDO" })}
+            onDelete={() => dispatch({ type: "DELETE_SELECTED" })}
+            onDuplicate={() => {
+              const ids = [...selection.nodeIds];
+              if (ids.length > 0) dispatch({ type: "DUPLICATE_NODES", nodeIds: ids });
+            }}
+          />
+        )}
+        <Toolbar
+          activeTool={activeTool}
+          onToolChange={handleToolChange}
+          onImageClick={() => {
+            imageClickPosRef.current = screenToWorld(
+              size.width / 2,
+              size.height / 2,
+              cam
+            );
+            imageInputRef.current?.click();
           }}
         />
-      )}
-      <Toolbar
-        activeTool={activeTool}
-        onToolChange={handleToolChange}
-        onImageClick={() => {
-          imageClickPosRef.current = screenToWorld(
-            size.width / 2,
-            size.height / 2,
-            cam
-          );
-          imageInputRef.current?.click();
-        }}
-      />
+      </div>
       <ZoomControls
         zoom={cam.zoom}
         onZoomIn={handleZoomIn}
