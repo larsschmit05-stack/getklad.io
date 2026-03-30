@@ -1,5 +1,7 @@
 "use client";
 
+import { memo } from "react";
+
 import type { CanvasNode } from "@/lib/canvas/types";
 
 interface RectNodeProps {
@@ -19,7 +21,7 @@ function resolveFill(fill: string, fillStyle: string | undefined): { fill: strin
   return { fill, fillOpacity: 1 };
 }
 
-export default function RectNode({ node, isSelected }: RectNodeProps) {
+function RectNode({ node, isSelected }: RectNodeProps) {
   if (node.props.type !== "rect") return null;
   void isSelected;
   const { fill, stroke, strokeWidth, strokeStyle, fillStyle } = node.props;
@@ -42,3 +44,5 @@ export default function RectNode({ node, isSelected }: RectNodeProps) {
     </g>
   );
 }
+
+export default memo(RectNode);

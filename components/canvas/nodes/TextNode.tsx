@@ -1,8 +1,15 @@
 "use client";
 
-import { useLayoutEffect, useRef } from "react";
+import { memo, useLayoutEffect, useRef } from "react";
 
 import type { CanvasNode } from "@/lib/canvas/types";
+import {
+  getTextDomFontFamily,
+  measureTextNodeSize,
+  TEXT_BOX_PADDING_X,
+  TEXT_BOX_PADDING_Y,
+  TEXT_LINE_HEIGHT,
+} from "@/lib/canvas/text";
 
 interface TextNodeProps {
   node: CanvasNode;
@@ -13,7 +20,7 @@ interface TextNodeProps {
   onBlur?: () => void;
 }
 
-export default function TextNode({
+function TextNode({
   node,
   isSelected,
   isEditing,
@@ -27,32 +34,15 @@ export default function TextNode({
   const text = textType === "text" ? node.props.text : "";
   const fontSize = textType === "text" ? node.props.fontSize : 16;
   const color = textType === "text" ? node.props.color : "#1a1814";
-  const lineHeight = 1.35;
-  const horizontalPadding = 20;
-  const verticalPadding = 12;
+  const fontFamily = textType === "text" ? node.props.fontFamily : "sans";
+  const fontWeight = textType === "text" ? node.props.fontWeight : "normal";
+  const fontStyle = textType === "text" ? node.props.fontStyle : "normal";
+  const textDecoration = textType === "text" ? node.props.textDecoration : "none";
 
   useLayoutEffect(() => {
-    if (textType !== "text") return;
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d");
-    if (!context) return;
-
-    context.font = `${fontSize}px Geist, ui-sans-serif, system-ui, sans-serif`;
-
-    const content = text.length > 0 ? text : " ";
-    const lines = content.split("\n");
-    const longestLine = lines.reduce((max, line) => {
-      const measured = context.measureText(line.length > 0 ? line : " ").width;
-      return Math.max(max, measured);
-    }, 0);
-
-    const measuredWidth = Math.max(
-      32,
-      Math.ceil(longestLine + horizontalPadding)
-    );
-    const measuredHeight = Math.max(
-      Math.ceil(fontSize * lineHeight + verticalPadding),
-      Math.ceil(lines.length * fontSize * lineHeight + verticalPadding)
+    if (textType !== "text" || !isEditing) return;
+    const { width: measuredWidth, height: measuredHeight } = measureTextNodeSize(
+      node.props
     );
 
     if (
@@ -63,14 +53,16 @@ export default function TextNode({
     }
   }, [
     fontSize,
-    horizontalPadding,
-    lineHeight,
+    fontFamily,
+    fontStyle,
+    fontWeight,
     node.height,
     node.width,
     onSizeChange,
     text,
     textType,
-    verticalPadding,
+    isEditing,
+    node.props,
   ]);
 
   useLayoutEffect(() => {
@@ -122,16 +114,19 @@ export default function TextNode({
               background: "transparent",
               border: "none",
               outline: "none",
-              padding: "4px 6px",
+              padding: `${TEXT_BOX_PADDING_Y}px ${TEXT_BOX_PADDING_X}px`,
               margin: 0,
-              fontFamily: "var(--font-geist-sans), sans-serif",
+              fontFamily: getTextDomFontFamily(fontFamily),
+              fontWeight,
+              fontStyle,
+              textDecoration,
               wordBreak: "break-word",
               whiteSpace: "pre",
               overflowY: "hidden",
               overflowX: "hidden",
               resize: "none",
               textAlign: "left",
-              lineHeight: String(lineHeight),
+              lineHeight: String(TEXT_LINE_HEIGHT),
             }}
             autoFocus
           />
@@ -143,24 +138,39 @@ export default function TextNode({
             style={{
               width: "100%",
               height: "100%",
-              display: "block",
+              display: "flex",
+              justifyContent: "flex-start",
               boxSizing: "border-box",
               fontSize: `${fontSize}px`,
               color,
-              padding: "4px 6px",
-              fontFamily: "var(--font-geist-sans), sans-serif",
+              padding: `${TEXT_BOX_PADDING_Y}px ${TEXT_BOX_PADDING_X}px`,
+              fontFamily: getTextDomFontFamily(fontFamily),
+              fontWeight,
+              fontStyle,
+              textDecoration,
               wordBreak: "break-word",
               whiteSpace: "pre",
               pointerEvents: "none",
               userSelect: "none",
               textAlign: "left",
-              lineHeight: String(lineHeight),
+              lineHeight: String(TEXT_LINE_HEIGHT),
+              overflow: "hidden",
             }}
           >
-            {text}
+            <span style={{ display: "block", width: "100%" }}>{text}</span>
           </div>
         </foreignObject>
       )}
     </g>
   );
 }
+
+function areTextNodePropsEqual(prev: TextNodeProps, next: TextNodeProps) {
+  return (
+    prev.node === next.node &&
+    prev.isSelected === next.isSelected &&
+    prev.isEditing === next.isEditing
+  );
+}
+
+export default memo(TextNode, areTextNodePropsEqual);

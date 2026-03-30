@@ -46,25 +46,90 @@ export function getNodeBounds(node: CanvasNode): AABB {
   };
 }
 
+export function getSelectionFrameBounds(
+  node: CanvasNode,
+  camera: Camera
+): AABB {
+  if (
+    node.props.type === "image" &&
+    node.props.originalWidth &&
+    node.props.originalHeight
+  ) {
+    const imageAspect = node.props.originalWidth / node.props.originalHeight;
+    const nodeAspect = node.width / Math.max(node.height, 1);
+
+    if (nodeAspect > imageAspect) {
+      const contentWidth = node.height * imageAspect;
+      const insetX = (node.width - contentWidth) / 2;
+      return {
+        minX: node.x + insetX,
+        minY: node.y,
+        maxX: node.x + insetX + contentWidth,
+        maxY: node.y + node.height,
+      };
+    }
+
+    const contentHeight = node.width / imageAspect;
+    const insetY = (node.height - contentHeight) / 2;
+    return {
+      minX: node.x,
+      minY: node.y + insetY,
+      maxX: node.x + node.width,
+      maxY: node.y + insetY + contentHeight,
+    };
+  }
+
+  if (node.props.type !== "freehand" || node.props.points.length === 0) {
+    return getNodeBounds(node);
+  }
+
+  let minPX = Infinity;
+  let minPY = Infinity;
+  let maxPX = -Infinity;
+  let maxPY = -Infinity;
+
+  for (const [px, py] of node.props.points) {
+    if (px < minPX) minPX = px;
+    if (py < minPY) minPY = py;
+    if (px > maxPX) maxPX = px;
+    if (py > maxPY) maxPY = py;
+  }
+
+  const padding = Math.max(8 / camera.zoom, node.props.strokeWidth * 1.5);
+
+  return {
+    minX: node.x + minPX - padding,
+    minY: node.y + minPY - padding,
+    maxX: node.x + maxPX + padding,
+    maxY: node.y + maxPY + padding,
+  };
+}
+
 /** Check if a world-space point is inside a node's bounding box. */
 export function pointInNode(
   worldX: number,
   worldY: number,
-  node: CanvasNode
+  node: CanvasNode,
+  hitPadding: number = 0
 ): boolean {
   // Arrows use line-proximity testing instead of bounding-box testing
   if (node.props.type === "arrow") {
     const { dx, dy } = node.props;
     const x1 = node.x, y1 = node.y;
     const lenSq = dx * dx + dy * dy;
-    if (lenSq === 0) return Math.hypot(worldX - x1, worldY - y1) < 8;
+    if (lenSq === 0) return Math.hypot(worldX - x1, worldY - y1) < 8 + hitPadding;
     const t = Math.max(0, Math.min(1, ((worldX - x1) * dx + (worldY - y1) * dy) / lenSq));
     const projX = x1 + t * dx;
     const projY = y1 + t * dy;
-    return Math.hypot(worldX - projX, worldY - projY) < 8;
+    return Math.hypot(worldX - projX, worldY - projY) < 8 + hitPadding;
   }
   const b = getNodeBounds(node);
-  return worldX >= b.minX && worldX <= b.maxX && worldY >= b.minY && worldY <= b.maxY;
+  return (
+    worldX >= b.minX - hitPadding &&
+    worldX <= b.maxX + hitPadding &&
+    worldY >= b.minY - hitPadding &&
+    worldY <= b.maxY + hitPadding
+  );
 }
 
 /** Check if two AABBs intersect. */
@@ -112,8 +177,12 @@ export function getSelectionBounds(nodes: CanvasNode[]): AABB | null {
 export type ResizeHandle =
   | "top-left"
   | "top-right"
+  | "right"
   | "bottom-left"
-  | "bottom-right";
+  | "bottom-right"
+  | "bottom"
+  | "left"
+  | "top";
 
 /** Check if a screen point hits a resize handle. Returns handle name or null. */
 export function hitTestResizeHandles(
@@ -121,14 +190,14 @@ export function hitTestResizeHandles(
   screenY: number,
   node: CanvasNode,
   camera: Camera,
-  handleSize: number = 8
+  handleSize: number = 12
 ): ResizeHandle | null {
-  const inset = Math.max(4, 6 / camera.zoom);
+  const frame = getSelectionFrameBounds(node, camera);
   const corners: [ResizeHandle, number, number][] = [
-    ["top-left", node.x + inset, node.y + inset],
-    ["top-right", node.x + node.width - inset, node.y + inset],
-    ["bottom-left", node.x + inset, node.y + node.height - inset],
-    ["bottom-right", node.x + node.width - inset, node.y + node.height - inset],
+    ["top-left", frame.minX, frame.minY],
+    ["top-right", frame.maxX, frame.minY],
+    ["bottom-left", frame.minX, frame.maxY],
+    ["bottom-right", frame.maxX, frame.maxY],
   ];
 
   const half = handleSize / 2;
@@ -141,6 +210,43 @@ export function hitTestResizeHandles(
     ) {
       return handle;
     }
+  }
+
+  const edgeTolerance = Math.max(handleSize / 2, 6);
+  const left = worldToScreen(frame.minX, frame.minY, camera).x;
+  const right = worldToScreen(frame.maxX, frame.minY, camera).x;
+  const top = worldToScreen(frame.minX, frame.minY, camera).y;
+  const bottom = worldToScreen(frame.minX, frame.maxY, camera).y;
+  if (
+    Math.abs(screenY - top) <= edgeTolerance &&
+    screenX >= left + handleSize &&
+    screenX <= right - handleSize
+  ) {
+    return "top";
+  }
+
+  if (
+    Math.abs(screenY - bottom) <= edgeTolerance &&
+    screenX >= left + handleSize &&
+    screenX <= right - handleSize
+  ) {
+    return "bottom";
+  }
+
+  if (
+    Math.abs(screenX - left) <= edgeTolerance &&
+    screenY >= top + handleSize &&
+    screenY <= bottom - handleSize
+  ) {
+    return "left";
+  }
+
+  if (
+    Math.abs(screenX - right) <= edgeTolerance &&
+    screenY >= top + handleSize &&
+    screenY <= bottom - handleSize
+  ) {
+    return "right";
   }
   return null;
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import { memo } from "react";
+
 import type { CanvasNode } from "@/lib/canvas/types";
 
 interface FreehandNodeProps {
@@ -34,8 +36,9 @@ function smoothPath(points: Array<[number, number]>): string {
   return d;
 }
 
-export default function FreehandNode({ node, isSelected }: FreehandNodeProps) {
+function FreehandNode({ node, isSelected }: FreehandNodeProps) {
   if (node.props.type !== "freehand") return null;
+  void isSelected;
   const { points, stroke, strokeWidth, strokeStyle } = node.props;
 
   if (points.length < 2) return null;
@@ -55,8 +58,8 @@ export default function FreehandNode({ node, isSelected }: FreehandNodeProps) {
       <path
         d={d}
         fill="none"
-        stroke={isSelected ? "#3b82f6" : stroke}
-        strokeWidth={isSelected ? Math.max(strokeWidth, 2) : strokeWidth}
+        stroke={stroke}
+        strokeWidth={strokeWidth}
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeDasharray={dash}
@@ -64,3 +67,5 @@ export default function FreehandNode({ node, isSelected }: FreehandNodeProps) {
     </g>
   );
 }
+
+export default memo(FreehandNode);

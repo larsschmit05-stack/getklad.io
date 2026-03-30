@@ -2,10 +2,12 @@
 
 import { useState, useEffect } from "react";
 import type { CanvasNode, Camera } from "@/lib/canvas/types";
+import { getSelectionFrameBounds } from "@/lib/canvas/geometry";
 import { arrowheadPath } from "./nodes/ArrowNode";
 
 interface SelectionOverlayProps {
   selectedNodes: CanvasNode[];
+  hoveredNode: CanvasNode | null;
   marquee: { x: number; y: number; width: number; height: number } | null;
   camera: Camera;
   editingNodeId: string | null;
@@ -16,6 +18,7 @@ const HANDLE_SIZE_SCREEN = 8; // Size in screen pixels
 
 export default function SelectionOverlay({
   selectedNodes,
+  hoveredNode,
   marquee,
   camera,
   editingNodeId,
@@ -86,6 +89,10 @@ export default function SelectionOverlay({
 
   return (
     <>
+      {hoveredNode && selectedNodes.length === 0 && (
+        <HoverOutline node={hoveredNode} camera={camera} />
+      )}
+
       {/* Custom selection handles based on node type */}
       {selectedNodes.length === 1 && (
         <SelectionHandles node={selectedNodes[0]} camera={camera} />
@@ -111,6 +118,65 @@ export default function SelectionOverlay({
         />
       )}
     </>
+  );
+}
+
+function HoverOutline({
+  node,
+  camera,
+}: {
+  node: CanvasNode;
+  camera: Camera;
+}) {
+  if (node.props.type === "arrow") {
+    const { dx, dy } = node.props;
+    return (
+      <line
+        x1={node.x}
+        y1={node.y}
+        x2={node.x + dx}
+        y2={node.y + dy}
+        stroke="#3b82f6"
+        strokeWidth={Math.max(1, 1.5 / camera.zoom)}
+        strokeLinecap="round"
+        opacity={0.9}
+        pointerEvents="none"
+      />
+    );
+  }
+
+  const frame = getSelectionFrameBounds(node, camera);
+  const strokeWidth = Math.max(1, 1.5 / camera.zoom);
+
+  if (node.props.type === "ellipse") {
+    return (
+      <ellipse
+        cx={node.x + node.width / 2}
+        cy={node.y + node.height / 2}
+        rx={Math.max(0, node.width / 2)}
+        ry={Math.max(0, node.height / 2)}
+        fill="none"
+        stroke="#3b82f6"
+        strokeWidth={strokeWidth}
+        opacity={0.9}
+        pointerEvents="none"
+      />
+    );
+  }
+
+  return (
+    <rect
+      x={frame.minX}
+      y={frame.minY}
+      width={Math.max(0, frame.maxX - frame.minX)}
+      height={Math.max(0, frame.maxY - frame.minY)}
+      rx={Math.max(2, 2 / camera.zoom)}
+      fill="none"
+      stroke="#3b82f6"
+      strokeWidth={strokeWidth}
+      opacity={0.9}
+      pointerEvents="none"
+    />
   );
 }
 
@@ -207,11 +273,12 @@ function SelectionHandles({
       "strokeWidth" in node.props
         ? Math.max(0.5, Math.min(node.props.strokeWidth, 1.25) / camera.zoom)
         : Math.max(0.5, 1 / camera.zoom);
+    const frame = getSelectionFrameBounds(node, camera);
     const corners: [string, number, number][] = [
-      ["top-left", node.x, node.y],
-      ["top-right", node.x + node.width, node.y],
-      ["bottom-left", node.x, node.y + node.height],
-      ["bottom-right", node.x + node.width, node.y + node.height],
+      ["top-left", frame.minX, frame.minY],
+      ["top-right", frame.maxX, frame.minY],
+      ["bottom-left", frame.minX, frame.maxY],
+      ["bottom-right", frame.maxX, frame.maxY],
     ];
 
     return (
@@ -228,20 +295,20 @@ function SelectionHandles({
           />
         ) : node.props.type === "image" ? (
           <rect
-            x={node.x + outlineStroke / 2}
-            y={node.y + outlineStroke / 2}
-            width={Math.max(0, node.width - outlineStroke)}
-            height={Math.max(0, node.height - outlineStroke)}
+            x={frame.minX}
+            y={frame.minY}
+            width={Math.max(0, frame.maxX - frame.minX)}
+            height={Math.max(0, frame.maxY - frame.minY)}
             fill="none"
             stroke="#3b82f6"
             strokeWidth={outlineStroke}
           />
         ) : (
           <rect
-            x={node.x}
-            y={node.y}
-            width={node.width}
-            height={node.height}
+            x={frame.minX}
+            y={frame.minY}
+            width={frame.maxX - frame.minX}
+            height={frame.maxY - frame.minY}
             rx={Math.max(2, 2 / camera.zoom)}
             fill="none"
             stroke="#3b82f6"

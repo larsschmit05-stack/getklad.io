@@ -1,5 +1,7 @@
 "use client";
 
+import { memo } from "react";
+
 import type { CanvasNode } from "@/lib/canvas/types";
 
 interface ArrowNodeProps {
@@ -33,7 +35,7 @@ function strokeDashArray(
   return undefined;
 }
 
-export default function ArrowNode({ node, isSelected }: ArrowNodeProps) {
+function ArrowNode({ node, isSelected }: ArrowNodeProps) {
   if (node.props.type !== "arrow") return null;
   void isSelected;
   const { dx, dy, stroke, strokeWidth, strokeStyle } = node.props;
@@ -82,3 +84,5 @@ export default function ArrowNode({ node, isSelected }: ArrowNodeProps) {
     </g>
   );
 }
+
+export default memo(ArrowNode);

@@ -9,6 +9,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { Crop, Download } from "lucide-react";
 import type {
   CanvasDocument,
   CanvasNode,
@@ -30,9 +31,11 @@ import {
   aabbIntersects,
   getNodeBounds,
   hitTestResizeHandles,
+  worldToScreen,
   type ResizeHandle,
 } from "@/lib/canvas/geometry";
 import { useAutosave } from "@/lib/canvas/hooks";
+import { measureTextNodeSize } from "@/lib/canvas/text";
 
 import Background from "./canvas/Background";
 import SelectionOverlay from "./canvas/SelectionOverlay";
@@ -104,6 +107,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   } | null>(null);
   const [hoveredResizeHandle, setHoveredResizeHandle] = useState<ResizeHandle | null>(null);
   const [activeResizeHandle, setActiveResizeHandle] = useState<ResizeHandle | null>(null);
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const spaceDownRef = useRef(false);
   // Mutable interaction state — grouped in a single object to avoid
   // react-hooks/immutability warnings on individual refs captured by callbacks.
@@ -334,11 +338,12 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
     (screenX: number, screenY: number): CanvasNode | null => {
       const s = stateRef.current;
       const world = screenToWorld(screenX, screenY, s.document.camera);
+      const hitPadding = 8 / s.document.camera.zoom;
       // Iterate in reverse z-order (top node wins)
       for (let i = s.document.nodeOrder.length - 1; i >= 0; i--) {
         const id = s.document.nodeOrder[i];
         const node = s.document.nodes[id];
-        if (node && pointInNode(world.x, world.y, node)) return node;
+        if (node && pointInNode(world.x, world.y, node, hitPadding)) return node;
       }
       return null;
     },
@@ -530,6 +535,10 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       }
 
       if (mode.kind === "none") {
+        const hoveredNode = hitTestNode(e.clientX, e.clientY);
+        setHoveredNodeId((current) =>
+          current === hoveredNode?.id ? current : hoveredNode?.id ?? null
+        );
         if (
           s.activeTool === "select" &&
           !s.editingNodeId &&
@@ -661,10 +670,33 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         if (node?.type === "text") {
           const widthRatio = mode.origW === 0 ? 1 : newW / mode.origW;
           const heightRatio = mode.origH === 0 ? 1 : newH / mode.origH;
-          const scale = Math.max(0.1, Math.min(widthRatio, heightRatio));
+          let scale = 1;
+          if (anchorX === null && anchorY !== null) {
+            scale = Math.max(0.1, heightRatio);
+          } else if (anchorY === null && anchorX !== null) {
+            scale = Math.max(0.1, widthRatio);
+          } else {
+            scale =
+              Math.abs(widthRatio - 1) >= Math.abs(heightRatio - 1)
+                ? Math.max(0.1, widthRatio)
+                : Math.max(0.1, heightRatio);
+          }
           const baseFontSize = mode.origTextFontSize ?? node.props.fontSize;
+          const nextFontSize = Math.max(8, Math.round(baseFontSize * scale));
+          const measured = measureTextNodeSize({
+            ...node.props,
+            fontSize: nextFontSize,
+          });
+          newW = measured.width;
+          newH = measured.height;
+          if (anchorX !== null) {
+            newX = anchorX <= world.x ? anchorX : anchorX - newW;
+          }
+          if (anchorY !== null) {
+            newY = anchorY <= world.y ? anchorY : anchorY - newH;
+          }
           resizeProps = {
-            fontSize: Math.max(8, Math.round(baseFontSize * scale)),
+            fontSize: nextFontSize,
           } as Partial<NodeProps>;
         }
 
@@ -759,7 +791,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         return;
       }
     },
-    []
+    [hitTestNode]
   );
 
   const handlePointerUp = useCallback(
@@ -972,7 +1004,15 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             y: worldY - h / 2,
             width: w,
             height: h,
-            props: { type: "image", src, alt: file.name },
+            props: {
+              type: "image",
+              src,
+              alt: file.name,
+              opacity: 1,
+              fit: "contain",
+              originalWidth: img.width,
+              originalHeight: img.height,
+            },
           });
           dispatch({ type: "SET_TOOL", tool: "select" });
           imageClickPosRef.current = null;
@@ -1071,7 +1111,24 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
     .filter((id) => selection.nodeIds.has(id))
     .map((id) => doc.nodes[id])
     .filter(Boolean) as CanvasNode[];
+  const hoveredNode =
+    hoveredNodeId && !selection.nodeIds.has(hoveredNodeId)
+      ? doc.nodes[hoveredNodeId] ?? null
+      : null;
   const hasTextSelection = selectedNodes.some((node) => node.type === "text");
+  const singleSelectedNode = selectedNodes.length === 1 ? selectedNodes[0] : null;
+  const hasImageSelection = singleSelectedNode?.type === "image";
+  const imageToolbarPosition =
+    singleSelectedNode?.type === "image"
+      ? (() => {
+          const topCenter = worldToScreen(
+            singleSelectedNode.x + singleSelectedNode.width / 2,
+            singleSelectedNode.y,
+            cam
+          );
+          return { left: topCenter.x, top: topCenter.y };
+        })()
+      : null;
 
   return (
     <div
@@ -1090,7 +1147,10 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       onDoubleClick={handleDoubleClick}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
-      onPointerLeave={() => setHoveredResizeHandle(null)}
+      onPointerLeave={() => {
+        setHoveredResizeHandle(null);
+        setHoveredNodeId(null);
+      }}
     >
       <Link
         href="/projects"
@@ -1247,6 +1307,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           {/* Selection overlay (handles, marquee) */}
           <SelectionOverlay
             selectedNodes={selectedNodes}
+            hoveredNode={hoveredNode}
             marquee={selection.marquee}
             camera={cam}
             editingNodeId={editingNodeId}
@@ -1275,11 +1336,63 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         onFitContent={handleFitContent}
       />
       <SaveIndicator status={saveStatus} />
+      {hasImageSelection && imageToolbarPosition && (
+        <div
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed",
+            left: imageToolbarPosition.left,
+            top: imageToolbarPosition.top,
+            transform: "translate(-50%, calc(-100% - 8px))",
+            zIndex: 1000,
+            display: "flex",
+            gap: "5px",
+            padding: "5px",
+            backgroundColor: "var(--klad-paper, #f7f4ef)",
+            border: "1px solid var(--klad-ink, #1a1814)",
+            boxShadow: "3px 3px 0 var(--klad-ink, #1a1814)",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              if (singleSelectedNode?.type !== "image") return;
+              dispatch({
+                type: "UPDATE_NODE_PROPS",
+                nodeId: singleSelectedNode.id,
+                props: {
+                  fit: singleSelectedNode.props.fit === "cover" ? "contain" : "cover",
+                } as Partial<NodeProps>,
+              });
+            }}
+            style={imageToolbarButtonStyle}
+            title="Crop"
+            aria-label="Crop"
+          >
+            <Crop size={16} />
+          </button>
+          <a
+            href={singleSelectedNode.props.src}
+            download={singleSelectedNode.props.alt || "image"}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              ...imageToolbarButtonStyle,
+              textDecoration: "none",
+            }}
+            title="Download original"
+            aria-label="Download original"
+          >
+            <Download size={16} />
+          </a>
+        </div>
+      )}
       <StylePanel
         activeStyle={state.activeStyle}
         hasSelection={selection.nodeIds.size > 0 && !editingNodeId}
         selectedNodeCount={selection.nodeIds.size}
         showTextControls={hasTextSelection}
+        showImageControls={hasImageSelection}
         onStyleChange={(partial) => {
           setStylePreviewNonce((value) => value + 1);
           dispatch({ type: "SET_ACTIVE_STYLE", style: partial });
@@ -1419,3 +1532,15 @@ function defaultPropsForTool(tool: Tool, style: ActiveStyle): NodeProps {
       return { type: "rect", fill: "transparent", stroke: style.color, strokeWidth: style.strokeWidth };
   }
 }
+
+const imageToolbarButtonStyle = {
+  width: "31px",
+  height: "31px",
+  border: "1px solid var(--klad-ink3, #7a756e)",
+  background: "transparent",
+  color: "var(--klad-ink, #1a1814)",
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+};

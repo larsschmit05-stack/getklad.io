@@ -33,7 +33,12 @@ export type ActiveStyle = {
   strokeStyle: StrokeStyle;
   fillStyle: FillStyle;
   strokeWidth: number;
+  opacity: number;
   fontSize: number;
+  fontFamily: "sans" | "serif" | "mono" | "display";
+  fontWeight: "normal" | "bold";
+  fontStyle: "normal" | "italic";
+  textDecoration: "none" | "underline";
 };
 
 // ---------------------------------------------------------------------------
@@ -64,6 +69,10 @@ export type TextProps = {
   text: string;
   fontSize: number;
   color: string;
+  fontFamily: "sans" | "serif" | "mono" | "display";
+  fontWeight: "normal" | "bold";
+  fontStyle: "normal" | "italic";
+  textDecoration: "none" | "underline";
 };
 
 export type StickyProps = {
@@ -109,6 +118,8 @@ export type ArrowProps = {
 export type ImageProps = {
   src: string; // Supabase Storage path, signed URL, or data URL
   alt: string;
+  opacity?: number;
+  fit?: "contain" | "cover";
   mimeType?: string;
   originalWidth?: number;
   originalHeight?: number;

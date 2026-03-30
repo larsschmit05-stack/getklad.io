@@ -17,6 +17,7 @@ interface StylePanelProps {
   hasSelection: boolean;
   selectedNodeCount?: number;
   showTextControls?: boolean;
+  showImageControls?: boolean;
   onStyleChange: (style: Partial<ActiveStyle>) => void;
   onAlign?: (alignment: AlignmentType) => void;
 }
@@ -51,6 +52,7 @@ export default function StylePanel({
   hasSelection,
   selectedNodeCount = 1,
   showTextControls = false,
+  showImageControls = false,
   onStyleChange,
   onAlign,
 }: StylePanelProps) {
@@ -236,7 +238,34 @@ export default function StylePanel({
         </div>
       )}
 
+      {showImageControls && (
+        <div>
+          <label
+            style={{
+              display: "block",
+              fontSize: "11px",
+              fontWeight: "600",
+              color: "var(--klad-ink3, #7a756e)",
+              marginBottom: "6px",
+              textTransform: "uppercase",
+              letterSpacing: "0.5px",
+            }}
+          >
+            Opacity
+          </label>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round(activeStyle.opacity * 100)}
+            onChange={(e) => onStyleChange({ opacity: Number(e.target.value) / 100 })}
+            style={{ width: "100%" }}
+          />
+        </div>
+      )}
+
       {/* Color Palette */}
+      {!showImageControls && (
       <div style={showTextControls ? { borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" } : undefined}>
         <label
           style={{
@@ -283,9 +312,10 @@ export default function StylePanel({
           ))}
         </div>
       </div>
+      )}
 
       {/* Stroke Width */}
-      {!showTextControls && (
+      {!showTextControls && !showImageControls && (
       <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" }}>
         <label
           style={{
@@ -332,7 +362,7 @@ export default function StylePanel({
       )}
 
       {/* Stroke Style */}
-      {!showTextControls && (
+      {!showTextControls && !showImageControls && (
       <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" }}>
         <label
           style={{
@@ -380,7 +410,7 @@ export default function StylePanel({
       )}
 
       {/* Fill Style */}
-      {!showTextControls && (
+      {!showTextControls && !showImageControls && (
       <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" }}>
         <label
           style={{

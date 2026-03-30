@@ -1,5 +1,7 @@
 "use client";
 
+import { memo } from "react";
+
 import type { CanvasNode } from "@/lib/canvas/types";
 
 interface ImageNodeProps {
@@ -7,9 +9,10 @@ interface ImageNodeProps {
   isSelected: boolean;
 }
 
-export default function ImageNode({ node, isSelected }: ImageNodeProps) {
+function ImageNode({ node, isSelected }: ImageNodeProps) {
   if (node.props.type !== "image") return null;
-  const { src, alt } = node.props;
+  void isSelected;
+  const { src, alt, opacity = 1, fit = "contain" } = node.props;
 
   return (
     <g transform={`translate(${node.x}, ${node.y})`}>
@@ -17,18 +20,12 @@ export default function ImageNode({ node, isSelected }: ImageNodeProps) {
         href={src}
         width={node.width}
         height={node.height}
-        preserveAspectRatio="xMidYMid meet"
+        preserveAspectRatio={fit === "cover" ? "xMidYMid slice" : "xMidYMid meet"}
+        opacity={opacity}
         aria-label={alt}
       />
-      {isSelected && (
-        <rect
-          width={node.width}
-          height={node.height}
-          fill="none"
-          stroke="#3b82f6"
-          strokeWidth={2}
-        />
-      )}
     </g>
   );
 }
+
+export default memo(ImageNode);

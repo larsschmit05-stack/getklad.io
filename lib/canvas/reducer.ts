@@ -88,6 +88,7 @@ export function createInitialState(
       strokeStyle: "solid",
       fillStyle: "none",
       strokeWidth: 2,
+      opacity: 1,
       fontSize: 24,
       fontFamily: "sans",
       fontWeight: "normal",
@@ -346,6 +347,9 @@ export function canvasReducer(
         }
         if (action.style.strokeWidth != null && "strokeWidth" in n.props) {
           updatedProps.strokeWidth = action.style.strokeWidth;
+        }
+        if (action.style.opacity != null && n.props.type === "image") {
+          updatedProps.opacity = action.style.opacity;
         }
         if (action.style.fontSize != null && n.props.type === "text") {
           updatedProps.fontSize = action.style.fontSize;

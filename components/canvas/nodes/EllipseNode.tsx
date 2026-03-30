@@ -1,5 +1,7 @@
 "use client";
 
+import { memo } from "react";
+
 import type { CanvasNode } from "@/lib/canvas/types";
 
 interface EllipseNodeProps {
@@ -19,7 +21,7 @@ function resolveFill(fill: string, fillStyle: string | undefined): { fill: strin
   return { fill, fillOpacity: 1 };
 }
 
-export default function EllipseNode({ node, isSelected }: EllipseNodeProps) {
+function EllipseNode({ node, isSelected }: EllipseNodeProps) {
   if (node.props.type !== "ellipse") return null;
   void isSelected;
   const { fill, stroke, strokeWidth, strokeStyle, fillStyle } = node.props;
@@ -45,3 +47,5 @@ export default function EllipseNode({ node, isSelected }: EllipseNodeProps) {
     </g>
   );
 }
+
+export default memo(EllipseNode);
