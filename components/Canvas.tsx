@@ -10,6 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Crop, Download } from "lucide-react";
+import { jsPDF } from "jspdf";
 import type {
   CanvasDocument,
   CanvasNode,
@@ -22,6 +23,7 @@ import {
   createInitialState,
   type CanvasAction,
 } from "@/lib/canvas/reducer";
+import { generateId } from "@/lib/canvas/types";
 import {
   screenToWorld,
   pointInNode,
@@ -32,6 +34,8 @@ import {
   getNodeBounds,
   hitTestResizeHandles,
   worldToScreen,
+  getBBoxEdgePoint,
+  getConnectedArrowEndpoints,
   type ResizeHandle,
 } from "@/lib/canvas/geometry";
 import { useAutosave } from "@/lib/canvas/hooks";
@@ -44,6 +48,7 @@ import Toolbar from "./canvas/Toolbar";
 import ZoomControls from "./canvas/ZoomControls";
 import SaveIndicator from "./canvas/SaveIndicator";
 import StylePanel from "./canvas/StylePanel";
+import CanvasMenu from "./canvas/CanvasMenu";
 import TextNode from "./canvas/nodes/TextNode";
 import StickyNode from "./canvas/nodes/StickyNode";
 import RectNode from "./canvas/nodes/RectNode";
@@ -84,7 +89,8 @@ type DragMode =
       startWorldY: number;
     }
   | { kind: "draw"; nodeId: string }
-  | { kind: "create-shape"; startWorldX: number; startWorldY: number; nodeId: string | null };
+  | { kind: "create-shape"; startWorldX: number; startWorldY: number; nodeId: string | null }
+  | { kind: "connect-arrow"; fromNodeId: string };
 
 // ---------------------------------------------------------------------------
 // Component
@@ -99,6 +105,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   const [stylePreviewNonce, setStylePreviewNonce] = useState(0);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const imageClickPosRef = useRef<{ x: number; y: number } | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -112,7 +119,16 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   const [hoveredResizeHandle, setHoveredResizeHandle] = useState<ResizeHandle | null>(null);
   const [activeResizeHandle, setActiveResizeHandle] = useState<ResizeHandle | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  // Connection drag state (arrow tool connecting two nodes)
+  const [connectionDrag, setConnectionDrag] = useState<{
+    fromNodeId: string;
+    cursorX: number;
+    cursorY: number;
+    targetNodeId: string | null;
+  } | null>(null);
+  const [arrowHoverNodeId, setArrowHoverNodeId] = useState<string | null>(null);
   const spaceDownRef = useRef(false);
+  const clipboardRef = useRef<CanvasNode[]>([]);
   // Mutable interaction state — grouped in a single object to avoid
   // react-hooks/immutability warnings on individual refs captured by callbacks.
   const interaction = useRef({
@@ -192,10 +208,13 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       });
       return;
     }
+
     const bounds = getSelectionBounds(allNodes);
     if (!bounds) return;
 
-    const padding = 80;
+    // Device-aware padding scaled to viewport size
+    const padding = Math.max(60, Math.min(size.width, size.height) * 0.1);
+
     const bw = bounds.maxX - bounds.minX;
     const bh = bounds.maxY - bounds.minY;
     const zoom = clampZoom(
@@ -204,15 +223,104 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         (size.height - padding * 2) / Math.max(bh, 1)
       )
     );
+
+    // Center the content bounding box on screen
+    const contentCenterX = (bounds.minX + bounds.maxX) / 2;
+    const contentCenterY = (bounds.minY + bounds.maxY) / 2;
     dispatch({
       type: "SET_CAMERA",
       camera: {
-        x: size.width / 2 - (bounds.minX + bw / 2) * zoom,
-        y: size.height / 2 - (bounds.minY + bh / 2) * zoom,
+        x: size.width / 2 - contentCenterX * zoom,
+        y: size.height / 2 - contentCenterY * zoom,
         zoom,
       },
     });
   }, [size]);
+
+  // ---------------------------------------------------------------------------
+  // Selection callbacks
+  // ---------------------------------------------------------------------------
+  const handleSelectAll = useCallback(() => {
+    dispatch({ type: "SELECT_ALL" });
+  }, []);
+
+  const handleDeselect = useCallback(() => {
+    dispatch({ type: "CLEAR_SELECTION" });
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Export callbacks
+  // ---------------------------------------------------------------------------
+  const handleExportSvg = useCallback(() => {
+    if (!svgRef.current) return;
+    const svgEl = svgRef.current;
+    const serializer = new XMLSerializer();
+    const svgStr = serializer.serializeToString(svgEl);
+    const blob = new Blob([svgStr], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "canvas.svg";
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const handleExportPng = useCallback(() => {
+    if (!svgRef.current) return;
+    const svgEl = svgRef.current;
+    const serializer = new XMLSerializer();
+    const svgStr = serializer.serializeToString(svgEl);
+    const img = new Image();
+    const svgBlob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(svgBlob);
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = svgEl.clientWidth;
+      canvas.height = svgEl.clientHeight;
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#f7f4ef"; // --klad-paper background
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      const a = document.createElement("a");
+      a.download = "canvas.png";
+      a.href = canvas.toDataURL("image/png");
+      a.click();
+    };
+    img.src = url;
+  }, []);
+
+  const handleExportPdf = useCallback(() => {
+    if (!svgRef.current) return;
+    const svgEl = svgRef.current;
+    const width = svgEl.clientWidth;
+    const height = svgEl.clientHeight;
+    const serializer = new XMLSerializer();
+    const svgStr = serializer.serializeToString(svgEl);
+    const img = new Image();
+    const svgBlob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(svgBlob);
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#f7f4ef";
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF({
+        orientation: width > height ? "landscape" : "portrait",
+        unit: "mm",
+        format: [width / 3.78, height / 3.78],
+      });
+      pdf.addImage(imgData, "PNG", 0, 0, width / 3.78, height / 3.78);
+      pdf.save("canvas.pdf");
+    };
+    img.src = url;
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Keyboard
@@ -235,6 +343,34 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 
       const meta = e.metaKey || e.ctrlKey;
 
+      // Printable key on a selected sticky/rect/ellipse → enter edit mode immediately
+      if (
+        e.key.length === 1 &&
+        !meta &&
+        !e.altKey &&
+        stateRef.current.selection.nodeIds.size === 1
+      ) {
+        const selectedId = [...stateRef.current.selection.nodeIds][0];
+        const selectedNode = stateRef.current.document.nodes[selectedId];
+        if (
+          selectedNode &&
+          (selectedNode.props.type === "sticky" ||
+            selectedNode.props.type === "rect" ||
+            selectedNode.props.type === "ellipse")
+        ) {
+          const existingText =
+            "text" in selectedNode.props ? (selectedNode.props.text ?? "") : "";
+          dispatch({ type: "SET_EDITING", nodeId: selectedId });
+          dispatch({
+            type: "UPDATE_NODE_TEXT",
+            nodeId: selectedId,
+            text: existingText + e.key,
+          });
+          e.preventDefault();
+          return;
+        }
+      }
+
       if (e.key === "Escape") {
         dispatch({ type: "CLEAR_SELECTION" });
       } else if (e.key === "Delete" || e.key === "Backspace") {
@@ -249,6 +385,40 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       } else if (meta && e.key === "z") {
         dispatch({ type: "UNDO" });
         e.preventDefault();
+      } else if (meta && e.key === "c") {
+        const ids = [...stateRef.current.selection.nodeIds];
+        const nodes = stateRef.current.document.nodes;
+        clipboardRef.current = ids
+          .map((id) => nodes[id])
+          .filter(Boolean)
+          .map((n) => JSON.parse(JSON.stringify(n)));
+        e.preventDefault();
+      } else if (meta && e.key === "x") {
+        const ids = [...stateRef.current.selection.nodeIds];
+        const nodes = stateRef.current.document.nodes;
+        clipboardRef.current = ids
+          .map((id) => nodes[id])
+          .filter(Boolean)
+          .map((n) => JSON.parse(JSON.stringify(n)));
+        if (ids.length > 0) dispatch({ type: "DELETE_SELECTED" });
+        e.preventDefault();
+      } else if (meta && e.key === "v") {
+        if (clipboardRef.current.length > 0) {
+          const newNodes = clipboardRef.current.map((n) => {
+            const clone: CanvasNode = JSON.parse(JSON.stringify(n));
+            clone.id = generateId();
+            clone.x += 20;
+            clone.y += 20;
+            return clone;
+          });
+          dispatch({ type: "PASTE_NODES", nodes: newNodes });
+          // Update clipboard positions for cascading paste
+          clipboardRef.current = newNodes.map((n) =>
+            JSON.parse(JSON.stringify(n))
+          );
+          e.preventDefault();
+        }
+        // If clipboard empty, fall through for image paste handler
       } else if (meta && e.key === "d") {
         const ids = [...stateRef.current.selection.nodeIds];
         if (ids.length > 0) {
@@ -349,11 +519,12 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       const s = stateRef.current;
       const world = screenToWorld(screenX, screenY, s.document.camera);
       const hitPadding = 8 / s.document.camera.zoom;
+      const allNodes = s.document.nodes;
       // Iterate in reverse z-order (top node wins)
       for (let i = s.document.nodeOrder.length - 1; i >= 0; i--) {
         const id = s.document.nodeOrder[i];
-        const node = s.document.nodes[id];
-        if (node && pointInNode(world.x, world.y, node, hitPadding)) return node;
+        const node = allNodes[id];
+        if (node && pointInNode(world.x, world.y, node, hitPadding, allNodes)) return node;
       }
       return null;
     },
@@ -432,14 +603,31 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         return;
       }
 
+      if (tool === "arrow") {
+        // If clicking on a connectable node, start a connection drag
+        const connectable = ["rect", "ellipse", "sticky", "text", "image"];
+        const hitNode = hitTestNode(e.clientX, e.clientY);
+        if (hitNode && connectable.includes(hitNode.type)) {
+          interaction.current.dragMode = { kind: "connect-arrow", fromNodeId: hitNode.id };
+          setConnectionDrag({ fromNodeId: hitNode.id, cursorX: world.x, cursorY: world.y, targetNodeId: null });
+          setArrowHoverNodeId(null);
+          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+          return;
+        }
+        // Fall through to create-shape (free arrow on empty space)
+      }
+
       if (tool !== "select") {
-        // Shape/text/sticky creation tools — start drag to define size
+        // All tools: start drag mode, will resolve to default or custom size on release
         interaction.current.dragMode = {
           kind: "create-shape",
           startWorldX: world.x,
           startWorldY: world.y,
           nodeId: null,
         };
+        interaction.current.hasMoved = false; // Reset for this drag
+        (interaction.current as any).dragStartClientX = e.clientX; // Store for hasMoved calculation
+        (interaction.current as any).dragStartClientY = e.clientY;
         (e.target as HTMLElement).setPointerCapture(e.pointerId);
         return;
       }
@@ -448,7 +636,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       if (s.selection.nodeIds.size === 1) {
         const selectedId = [...s.selection.nodeIds][0];
         const selectedNode = s.document.nodes[selectedId];
-        if (selectedNode) {
+        if (selectedNode && selectedNode.props.type !== "sticky") {
           const handle = hitTestResizeHandles(
             e.clientX,
             e.clientY,
@@ -495,6 +683,13 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             nodeIds: [hitNode.id],
             append: true,
           });
+        }
+
+        // Connected arrows can't be moved — they're anchored to their endpoint nodes
+        if (hitNode.props.type === "arrow" && hitNode.props.fromNodeId && hitNode.props.toNodeId) {
+          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+          interaction.current.dragMode = { kind: "none" };
+          return;
         }
 
         // Start move drag
@@ -565,6 +760,36 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         } else {
           setHoveredResizeHandle((current) => (current === null ? current : null));
         }
+        // Arrow tool: highlight connectable nodes under cursor
+        if (s.activeTool === "arrow") {
+          const connectable = ["rect", "ellipse", "sticky", "text", "image"];
+          const snapId = hoveredNode && connectable.includes(hoveredNode.type) ? hoveredNode.id : null;
+          setArrowHoverNodeId((current) => current === snapId ? current : snapId);
+        } else {
+          setArrowHoverNodeId((current) => current === null ? current : null);
+        }
+      }
+
+      if (mode.kind === "connect-arrow") {
+        const world = screenToWorld(e.clientX, e.clientY, cam);
+        const connectable = ["rect", "ellipse", "sticky", "text", "image"];
+        const snapDistance = 60; // World-space snap zone radius (larger area)
+
+        // Find if cursor is within snap zone of any connectable node
+        let targetId: string | null = null;
+        for (const node of Object.values(s.document.nodes)) {
+          if (node.id === mode.fromNodeId || !connectable.includes(node.props.type)) continue;
+          const nodeCx = node.x + node.width / 2;
+          const nodeCy = node.y + node.height / 2;
+          const dist = Math.hypot(world.x - nodeCx, world.y - nodeCy);
+          if (dist < snapDistance) {
+            targetId = node.id;
+            break;
+          }
+        }
+
+        setConnectionDrag({ fromNodeId: mode.fromNodeId, cursorX: world.x, cursorY: world.y, targetNodeId: targetId });
+        return;
       }
 
       if (mode.kind === "move") {
@@ -787,6 +1012,14 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 
       if (mode.kind === "create-shape") {
         const world = screenToWorld(e.clientX, e.clientY, cam);
+        const dx = (e.clientX - (interaction.current as any).dragStartClientX) / cam.zoom;
+        const dy = (e.clientY - (interaction.current as any).dragStartClientY) / cam.zoom;
+
+        // Track drag distance and mark hasMoved when threshold exceeded
+        if (!interaction.current.hasMoved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
+          interaction.current.hasMoved = true;
+        }
+
         if (s.activeTool === "arrow") {
           const snapped = e.shiftKey
             ? snapArrowVector(world.x - mode.startWorldX, world.y - mode.startWorldY)
@@ -805,10 +1038,10 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             world.x - mode.startWorldX,
             world.y - mode.startWorldY
           );
-          let x = dragRect.minX;
-          let y = dragRect.minY;
-          let w = dragRect.maxX - dragRect.minX;
-          let h = dragRect.maxY - dragRect.minY;
+          const x = dragRect.minX;
+          const y = dragRect.minY;
+          const w = dragRect.maxX - dragRect.minX;
+          const h = dragRect.maxY - dragRect.minY;
 
           setShapePreview({
             x,
@@ -856,6 +1089,82 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         return;
       }
 
+      if (mode.kind === "connect-arrow") {
+        setConnectionDrag(null);
+        setArrowHoverNodeId(null);
+        interaction.current.dragMode = { kind: "none" };
+
+        const connectable = ["rect", "ellipse", "sticky", "text", "image"];
+        const world = screenToWorld(e.clientX, e.clientY, s.document.camera);
+        const snapDistance = 60; // World-space snap zone radius (larger area)
+
+        // Find if cursor is within snap zone of any connectable node
+        let targetNode: CanvasNode | null = null;
+        for (const node of Object.values(s.document.nodes)) {
+          if (node.id === mode.fromNodeId || !connectable.includes(node.props.type)) continue;
+          const nodeCx = node.x + node.width / 2;
+          const nodeCy = node.y + node.height / 2;
+          const dist = Math.hypot(world.x - nodeCx, world.y - nodeCy);
+          if (dist < snapDistance) {
+            targetNode = node;
+            break;
+          }
+        }
+
+        if (targetNode) {
+          // Connected arrow
+          const fromNode = s.document.nodes[mode.fromNodeId];
+          const { x1, y1, x2, y2 } = getConnectedArrowEndpoints(fromNode, targetNode);
+          dispatch({
+            type: "CREATE_NODE",
+            nodeType: "arrow",
+            x: x1, y: y1,
+            width: Math.abs(x2 - x1) || 1,
+            height: Math.abs(y2 - y1) || 1,
+            props: {
+              type: "arrow",
+              dx: x2 - x1, dy: y2 - y1,
+              stroke: s.activeStyle.color,
+              strokeWidth: s.activeStyle.strokeWidth,
+              strokeStyle: s.activeStyle.strokeStyle,
+              fromNodeId: mode.fromNodeId,
+              toNodeId: targetNode.id,
+            },
+          });
+          dispatch({ type: "SET_TOOL", tool: "select" });
+        } else {
+          // Free arrow from source node edge to release point
+          const fromNode = s.document.nodes[mode.fromNodeId];
+          if (fromNode) {
+            const fromCx = fromNode.x + fromNode.width / 2;
+            const fromCy = fromNode.y + fromNode.height / 2;
+            const srcEdge = getBBoxEdgePoint(fromNode, world.x, world.y);
+            const dx = world.x - srcEdge.x;
+            const dy = world.y - srcEdge.y;
+            const len = Math.hypot(dx, dy);
+            if (len > 5) {
+              dispatch({
+                type: "CREATE_NODE",
+                nodeType: "arrow",
+                x: srcEdge.x,
+                y: srcEdge.y,
+                width: Math.abs(dx),
+                height: Math.abs(dy),
+                props: {
+                  type: "arrow",
+                  dx,
+                  dy,
+                  stroke: s.activeStyle.color,
+                  strokeWidth: s.activeStyle.strokeWidth,
+                  strokeStyle: s.activeStyle.strokeStyle,
+                },
+              });
+            }
+          }
+        }
+        return;
+      }
+
       if (mode.kind === "create-shape") {
         const tool = s.activeTool;
         const ast = s.activeStyle;
@@ -863,27 +1172,21 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         setArrowPreview(null);
         setShapePreview(null);
 
-        if (tool === "arrow") {
-          const endWorld = screenToWorld(e.clientX, e.clientY, cam);
-          const vector = e.shiftKey
-            ? snapArrowVector(endWorld.x - mode.startWorldX, endWorld.y - mode.startWorldY)
-            : { dx: endWorld.x - mode.startWorldX, dy: endWorld.y - mode.startWorldY };
-          const dx = vector.dx;
-          const dy = vector.dy;
-          const len = Math.hypot(dx, dy);
-          if (len < 5) {
-            // Click with no drag — create default horizontal arrow
-            const defaultLen = 120 / cam.zoom;
+        // If no real drag movement, create with default size (independent of zoom)
+        if (!interaction.current.hasMoved) {
+          if (tool === "arrow") {
+            // Default horizontal arrow (independent of zoom)
+            const defaultSize = 120;
             dispatch({
               type: "CREATE_NODE",
               nodeType: "arrow",
               x: mode.startWorldX,
               y: mode.startWorldY,
-              width: defaultLen,
+              width: defaultSize,
               height: 1,
               props: {
                 type: "arrow",
-                dx: defaultLen,
+                dx: defaultSize,
                 dy: 0,
                 stroke: ast.color,
                 strokeWidth: ast.strokeWidth,
@@ -891,59 +1194,70 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
               },
             });
           } else {
+            // Other shapes: use default size (independent of zoom)
+            const defaultSize = defaultSizeForTool(tool);
+            const w = defaultSize.w;
+            const h = defaultSize.h;
+            const x = mode.startWorldX - w / 2;
+            const y = mode.startWorldY - h / 2;
             dispatch({
               type: "CREATE_NODE",
-              nodeType: "arrow",
-              x: mode.startWorldX,
-              y: mode.startWorldY,
-              width: Math.abs(dx),
-              height: Math.abs(dy),
-              props: {
-                type: "arrow",
-                dx,
-                dy,
-                stroke: ast.color,
-                strokeWidth: ast.strokeWidth,
-                strokeStyle: ast.strokeStyle,
-              },
+              nodeType: tool as CanvasNode["type"],
+              x,
+              y,
+              width: w,
+              height: h,
+              props: defaultPropsForTool(tool, ast),
             });
           }
           interaction.current.dragMode = { kind: "none" };
           setActiveResizeHandle(null);
-          // Switch back to select after placing arrow
           dispatch({ type: "SET_TOOL", tool: "select" });
           return;
         }
 
+        // User dragged — create with custom size based on drag
         const endWorld = screenToWorld(e.clientX, e.clientY, cam);
-        const dragRect = normalizeRect(
-          mode.startWorldX,
-          mode.startWorldY,
-          endWorld.x - mode.startWorldX,
-          endWorld.y - mode.startWorldY
-        );
-        let x = dragRect.minX;
-        let y = dragRect.minY;
-        let w = dragRect.maxX - dragRect.minX;
-        let h = dragRect.maxY - dragRect.minY;
-
-        if (Math.max(w, h) < 4 / cam.zoom) {
-          const defaultSize = defaultSizeForTool(tool);
-          w = defaultSize.w / cam.zoom;
-          h = defaultSize.h / cam.zoom;
-          x = mode.startWorldX - w / 2;
-          y = mode.startWorldY - h / 2;
+        if (tool === "arrow") {
+          const vector = e.shiftKey
+            ? snapArrowVector(endWorld.x - mode.startWorldX, endWorld.y - mode.startWorldY)
+            : { dx: endWorld.x - mode.startWorldX, dy: endWorld.y - mode.startWorldY };
+          dispatch({
+            type: "CREATE_NODE",
+            nodeType: "arrow",
+            x: mode.startWorldX,
+            y: mode.startWorldY,
+            width: Math.abs(vector.dx),
+            height: Math.abs(vector.dy),
+            props: {
+              type: "arrow",
+              dx: vector.dx,
+              dy: vector.dy,
+              stroke: ast.color,
+              strokeWidth: ast.strokeWidth,
+              strokeStyle: ast.strokeStyle,
+            },
+          });
+        } else {
+          const dragRect = normalizeRect(
+            mode.startWorldX,
+            mode.startWorldY,
+            endWorld.x - mode.startWorldX,
+            endWorld.y - mode.startWorldY
+          );
+          dispatch({
+            type: "CREATE_NODE",
+            nodeType: tool as CanvasNode["type"],
+            x: dragRect.minX,
+            y: dragRect.minY,
+            width: dragRect.maxX - dragRect.minX,
+            height: dragRect.maxY - dragRect.minY,
+            props: defaultPropsForTool(tool, ast),
+          });
         }
-
-        dispatch({
-          type: "CREATE_NODE",
-          nodeType: tool === "select" ? "rect" : (tool as CanvasNode["type"]),
-          x,
-          y,
-          width: w,
-          height: h,
-          props: defaultPropsForTool(tool, ast),
-        });
+        interaction.current.dragMode = { kind: "none" };
+        setActiveResizeHandle(null);
+        dispatch({ type: "SET_TOOL", tool: "select" });
       }
 
       if (mode.kind === "move") {
@@ -1194,6 +1508,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       onPointerLeave={() => {
         setHoveredResizeHandle(null);
         setHoveredNodeId(null);
+        setArrowHoverNodeId(null);
       }}
     >
       <Link
@@ -1243,6 +1558,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 
       {/* Main SVG scene */}
       <svg
+        ref={svgRef}
         className="absolute inset-0"
         width={size.width}
         height={size.height}
@@ -1328,7 +1644,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
                 );
               case "arrow":
                 return (
-                  <ArrowNode key={id} node={node} isSelected={isSelected} />
+                  <ArrowNode key={id} node={node} isSelected={isSelected} allNodes={doc.nodes} />
                 );
               case "image":
                 return (
@@ -1394,6 +1710,136 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             </g>
           )}
 
+          {/* Arrow tool: open grey circle on connectable node when hovering (not dragging) */}
+          {state.activeTool === "arrow" && arrowHoverNodeId && !connectionDrag && (() => {
+            const n = doc.nodes[arrowHoverNodeId];
+            if (!n) return null;
+            const cx = n.x + n.width / 2;
+            const cy = n.y + n.height / 2;
+            return (
+              <circle
+                cx={cx} cy={cy}
+                r={6 / cam.zoom}
+                fill="none"
+                stroke="#9ca3af"
+                strokeWidth={1.5 / cam.zoom}
+                pointerEvents="none"
+              />
+            );
+          })()}
+
+          {/* Connection drag visuals */}
+          {connectionDrag && (() => {
+            const fromNode = doc.nodes[connectionDrag.fromNodeId];
+            if (!fromNode) return null;
+
+            const fromCx = fromNode.x + fromNode.width / 2;
+            const fromCy = fromNode.y + fromNode.height / 2;
+            const sw = state.activeStyle.strokeWidth;
+            const color = state.activeStyle.color;
+            const z = cam.zoom;
+
+            const targetNode = connectionDrag.targetNodeId ? doc.nodes[connectionDrag.targetNodeId] : null;
+
+            // Arrow snaps to target node edge if within snap zone, else follows cursor
+            let arrowX2: number, arrowY2: number;
+            if (targetNode) {
+              const tgtEdge = getBBoxEdgePoint(targetNode, fromCx, fromCy);
+              arrowX2 = tgtEdge.x;
+              arrowY2 = tgtEdge.y;
+            } else {
+              arrowX2 = connectionDrag.cursorX;
+              arrowY2 = connectionDrag.cursorY;
+            }
+
+            // Source edge points toward where the arrow goes (target edge or cursor)
+            const srcEdge = getBBoxEdgePoint(fromNode, arrowX2, arrowY2);
+
+            const crossSize = 6 / z;
+
+            return (
+              <g pointerEvents="none">
+                {/* Source: open grey circle at node center */}
+                <circle
+                  cx={fromCx} cy={fromCy}
+                  r={6 / z}
+                  fill="none"
+                  stroke="#9ca3af"
+                  strokeWidth={1.5 / z}
+                />
+                {/* Source: grey dashed from center to edge */}
+                <line
+                  x1={fromCx} y1={fromCy}
+                  x2={srcEdge.x} y2={srcEdge.y}
+                  stroke="#9ca3af"
+                  strokeWidth={1 / z}
+                  strokeDasharray={`${4 / z} ${3 / z}`}
+                  strokeLinecap="round"
+                />
+
+                {/* Main arrow: colored, from source edge to arrow end */}
+                <line
+                  x1={srcEdge.x} y1={srcEdge.y}
+                  x2={arrowX2} y2={arrowY2}
+                  stroke={color}
+                  strokeWidth={sw}
+                  strokeDasharray={`${6 / z} ${4 / z}`}
+                  strokeOpacity={0.8}
+                  strokeLinecap="butt"
+                />
+                <path
+                  d={arrowheadPath(srcEdge.x, srcEdge.y, arrowX2, arrowY2)}
+                  stroke={color}
+                  strokeWidth={sw}
+                  fill="none"
+                  strokeOpacity={0.8}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+
+                {/* Grey X at target node center when snapped */}
+                {targetNode && (() => {
+                  const tgtCx = targetNode.x + targetNode.width / 2;
+                  const tgtCy = targetNode.y + targetNode.height / 2;
+                  return (
+                    <>
+                      <line
+                        x1={tgtCx - crossSize} y1={tgtCy - crossSize}
+                        x2={tgtCx + crossSize} y2={tgtCy + crossSize}
+                        stroke="#9ca3af" strokeWidth={1.5 / z} strokeLinecap="round"
+                      />
+                      <line
+                        x1={tgtCx + crossSize} y1={tgtCy - crossSize}
+                        x2={tgtCx - crossSize} y2={tgtCy + crossSize}
+                        stroke="#9ca3af" strokeWidth={1.5 / z} strokeLinecap="round"
+                      />
+                    </>
+                  );
+                })()}
+              </g>
+            );
+          })()}
+
+          {/* Target node highlight during connection drag */}
+          {connectionDrag && connectionDrag.targetNodeId && (() => {
+            const targetNode = doc.nodes[connectionDrag.targetNodeId];
+            if (!targetNode) return null;
+            const bounds = getNodeBounds(targetNode);
+            const padding = 4 / cam.zoom;
+            return (
+              <rect
+                x={bounds.minX - padding}
+                y={bounds.minY - padding}
+                width={bounds.maxX - bounds.minX + padding * 2}
+                height={bounds.maxY - bounds.minY + padding * 2}
+                fill="none"
+                stroke="#3b82f6"
+                strokeWidth={1.5 / cam.zoom}
+                pointerEvents="none"
+              />
+            );
+          })()}
+
           {/* Selection overlay (handles, marquee) */}
           <SelectionOverlay
             selectedNodes={selectedNodes}
@@ -1402,6 +1848,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             camera={cam}
             editingNodeId={editingNodeId}
             stylePreviewNonce={stylePreviewNonce}
+            allNodes={doc.nodes}
           />
         </g>
       </svg>
@@ -1421,20 +1868,18 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           gap: "8px",
         }}
       >
-        {activeTool === "select" && (
-          <ActionBar
-            canUndo={state.undoStack.length > 0}
-            canRedo={state.redoStack.length > 0}
-            hasSelection={selection.nodeIds.size > 0}
-            onUndo={() => dispatch({ type: "UNDO" })}
-            onRedo={() => dispatch({ type: "REDO" })}
-            onDelete={() => dispatch({ type: "DELETE_SELECTED" })}
-            onDuplicate={() => {
-              const ids = [...selection.nodeIds];
-              if (ids.length > 0) dispatch({ type: "DUPLICATE_NODES", nodeIds: ids });
-            }}
-          />
-        )}
+        <ActionBar
+          canUndo={state.undoStack.length > 0}
+          canRedo={state.redoStack.length > 0}
+          hasSelection={selection.nodeIds.size > 0}
+          onUndo={() => dispatch({ type: "UNDO" })}
+          onRedo={() => dispatch({ type: "REDO" })}
+          onDelete={() => dispatch({ type: "DELETE_SELECTED" })}
+          onDuplicate={() => {
+            const ids = [...selection.nodeIds];
+            if (ids.length > 0) dispatch({ type: "DUPLICATE_NODES", nodeIds: ids });
+          }}
+        />
         <Toolbar
           activeTool={activeTool}
           onToolChange={handleToolChange}
@@ -1506,6 +1951,29 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           </a>
         </div>
       )}
+      <CanvasMenu
+        canUndo={state.undoStack.length > 0}
+        canRedo={state.redoStack.length > 0}
+        hasSelection={selection.nodeIds.size > 0}
+        onUndo={() => dispatch({ type: "UNDO" })}
+        onRedo={() => dispatch({ type: "REDO" })}
+        onSelectAll={handleSelectAll}
+        onDeselect={handleDeselect}
+        onDelete={() => dispatch({ type: "DELETE_SELECTED" })}
+        onDuplicate={() => {
+          const ids = Array.from(selection.nodeIds);
+          if (ids.length > 0) {
+            dispatch({ type: "DUPLICATE_NODES", nodeIds: ids });
+          }
+        }}
+        onZoomIn={handleZoomIn}
+        onZoomOut={handleZoomOut}
+        onFitContent={handleFitContent}
+        onExportPng={handleExportPng}
+        onExportSvg={handleExportSvg}
+        onExportPdf={handleExportPdf}
+      />
+
       <StylePanel
         activeStyle={state.activeStyle}
         hasSelection={selection.nodeIds.size > 0 && !editingNodeId}
@@ -1513,9 +1981,14 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         showTextControls={hasTextSelection}
         showShapeTextControls={hasShapeTextSelection}
         showImageControls={hasImageSelection}
+        showStickyControls={hasStickySelection}
         onStyleChange={(partial) => {
           setStylePreviewNonce((value) => value + 1);
           dispatch({ type: "SET_ACTIVE_STYLE", style: partial });
+          // Also update selected nodes
+          for (const nodeId of selection.nodeIds) {
+            dispatch({ type: "UPDATE_NODE_PROPS", nodeId, props: partial });
+          }
         }}
         onAlign={(alignment) => {
           dispatch({
@@ -1523,6 +1996,16 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             nodeIds: Array.from(selection.nodeIds),
             alignment,
           });
+        }}
+        onZOrder={(action) => {
+          const ids = Array.from(selection.nodeIds);
+          const actionMap = {
+            "bring-to-front": "BRING_TO_FRONT",
+            "bring-forward": "BRING_FORWARD",
+            "send-backward": "SEND_BACKWARD",
+            "send-to-back": "SEND_TO_BACK",
+          } as const;
+          dispatch({ type: actionMap[action], nodeIds: ids });
         }}
       />
 

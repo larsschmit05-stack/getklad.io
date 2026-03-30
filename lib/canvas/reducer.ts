@@ -67,6 +67,11 @@ export type CanvasAction =
   | { type: "SET_ACTIVE_STYLE"; style: Partial<ActiveStyle> }
   | { type: "ALIGN_NODES"; nodeIds: string[]; alignment: AlignmentType }
   | { type: "DUPLICATE_NODES"; nodeIds: string[] }
+  | { type: "PASTE_NODES"; nodes: CanvasNode[] }
+  | { type: "BRING_TO_FRONT"; nodeIds: string[] }
+  | { type: "BRING_FORWARD"; nodeIds: string[] }
+  | { type: "SEND_BACKWARD"; nodeIds: string[] }
+  | { type: "SEND_TO_BACK"; nodeIds: string[] }
   | { type: "UNDO" }
   | { type: "REDO" };
 
@@ -200,7 +205,17 @@ export function canvasReducer(
       if (state.selection.nodeIds.size === 0) return state;
       const withUndo = pushUndo(state);
       const nodes = { ...withUndo.document.nodes };
-      const toDelete = withUndo.selection.nodeIds;
+      const toDelete = new Set(withUndo.selection.nodeIds);
+      // Cascade-delete connected arrows that reference any deleted node
+      for (const id of Object.keys(nodes)) {
+        const n = nodes[id];
+        if (n?.props.type === "arrow") {
+          const { fromNodeId, toNodeId } = n.props;
+          if ((fromNodeId && toDelete.has(fromNodeId)) || (toNodeId && toDelete.has(toNodeId))) {
+            toDelete.add(id);
+          }
+        }
+      }
       for (const id of toDelete) delete nodes[id];
       return {
         ...withUndo,
@@ -529,6 +544,82 @@ export function canvasReducer(
       return {
         ...withUndo,
         document: { ...withUndo.document, nodes },
+      };
+    }
+
+    case "PASTE_NODES": {
+      if (action.nodes.length === 0) return state;
+      const withUndo = pushUndo(state);
+      const nodes = { ...withUndo.document.nodes };
+      const nodeOrder = [...withUndo.document.nodeOrder];
+      const newIds: string[] = [];
+      for (const n of action.nodes) {
+        nodes[n.id] = n;
+        nodeOrder.push(n.id);
+        newIds.push(n.id);
+      }
+      return {
+        ...withUndo,
+        document: { ...withUndo.document, nodes, nodeOrder },
+        selection: { nodeIds: new Set(newIds), marquee: null },
+      };
+    }
+
+    case "BRING_TO_FRONT": {
+      if (action.nodeIds.length === 0) return state;
+      const withUndo = pushUndo(state);
+      const selected = new Set(action.nodeIds);
+      const rest = withUndo.document.nodeOrder.filter((id) => !selected.has(id));
+      const moved = withUndo.document.nodeOrder.filter((id) => selected.has(id));
+      return {
+        ...withUndo,
+        document: { ...withUndo.document, nodeOrder: [...rest, ...moved] },
+      };
+    }
+
+    case "SEND_TO_BACK": {
+      if (action.nodeIds.length === 0) return state;
+      const withUndo = pushUndo(state);
+      const selected = new Set(action.nodeIds);
+      const rest = withUndo.document.nodeOrder.filter((id) => !selected.has(id));
+      const moved = withUndo.document.nodeOrder.filter((id) => selected.has(id));
+      return {
+        ...withUndo,
+        document: { ...withUndo.document, nodeOrder: [...moved, ...rest] },
+      };
+    }
+
+    case "BRING_FORWARD": {
+      if (action.nodeIds.length === 0) return state;
+      const withUndo = pushUndo(state);
+      const selected = new Set(action.nodeIds);
+      const order = [...withUndo.document.nodeOrder];
+      // Iterate right-to-left to avoid double-swapping
+      for (let i = order.length - 2; i >= 0; i--) {
+        if (selected.has(order[i]) && !selected.has(order[i + 1])) {
+          [order[i], order[i + 1]] = [order[i + 1], order[i]];
+        }
+      }
+      return {
+        ...withUndo,
+        document: { ...withUndo.document, nodeOrder: order },
+      };
+    }
+
+    case "SEND_BACKWARD": {
+      if (action.nodeIds.length === 0) return state;
+      const withUndo = pushUndo(state);
+      const selected = new Set(action.nodeIds);
+      const order = [...withUndo.document.nodeOrder];
+      // Iterate left-to-right to avoid double-swapping
+      for (let i = 1; i < order.length; i++) {
+        if (selected.has(order[i]) && !selected.has(order[i - 1])) {
+          [order[i - 1], order[i]] = [order[i], order[i - 1]];
+        }
+      }
+      return {
+        ...withUndo,
+        document: { ...withUndo.document, nodeOrder: order },
       };
     }
 

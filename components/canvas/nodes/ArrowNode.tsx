@@ -3,10 +3,12 @@
 import { memo } from "react";
 
 import type { CanvasNode } from "@/lib/canvas/types";
+import { getConnectedArrowEndpoints } from "@/lib/canvas/geometry";
 
 interface ArrowNodeProps {
   node: CanvasNode;
   isSelected: boolean;
+  allNodes?: Record<string, CanvasNode>;
 }
 
 /** Compute an open arrowhead path at (endX, endY) pointing from (startX, startY). */
@@ -35,17 +37,28 @@ function strokeDashArray(
   return undefined;
 }
 
-function ArrowNode({ node, isSelected }: ArrowNodeProps) {
+function ArrowNode({ node, isSelected, allNodes }: ArrowNodeProps) {
   if (node.props.type !== "arrow") return null;
   void isSelected;
-  const { dx, dy, stroke, strokeWidth, strokeStyle } = node.props;
+  const { dx, dy, stroke, strokeWidth, strokeStyle, fromNodeId, toNodeId } = node.props;
 
-  if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return null;
+  let x1: number, y1: number, x2: number, y2: number;
 
-  const x1 = node.x;
-  const y1 = node.y;
-  const x2 = node.x + dx;
-  const y2 = node.y + dy;
+  if (fromNodeId && toNodeId && allNodes) {
+    const fromNode = allNodes[fromNodeId];
+    const toNode = allNodes[toNodeId];
+    if (fromNode && toNode) {
+      const ep = getConnectedArrowEndpoints(fromNode, toNode);
+      x1 = ep.x1; y1 = ep.y1; x2 = ep.x2; y2 = ep.y2;
+    } else {
+      // Fallback: referenced node was deleted, use stored vector
+      x1 = node.x; y1 = node.y; x2 = node.x + dx; y2 = node.y + dy;
+    }
+  } else {
+    x1 = node.x; y1 = node.y; x2 = node.x + dx; y2 = node.y + dy;
+  }
+
+  if (Math.hypot(x2 - x1, y2 - y1) < 1) return null;
 
   const dash = strokeDashArray(strokeStyle, strokeWidth);
   const arrowSize = Math.min(12, Math.max(8, strokeWidth * 4));

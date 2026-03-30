@@ -110,17 +110,31 @@ export function pointInNode(
   worldX: number,
   worldY: number,
   node: CanvasNode,
-  hitPadding: number = 0
+  hitPadding: number = 0,
+  allNodes?: Record<string, CanvasNode>
 ): boolean {
   // Arrows use line-proximity testing instead of bounding-box testing
   if (node.props.type === "arrow") {
-    const { dx, dy } = node.props;
-    const x1 = node.x, y1 = node.y;
-    const lenSq = dx * dx + dy * dy;
+    let x1: number, y1: number, edx: number, edy: number;
+    const { dx, dy, fromNodeId, toNodeId } = node.props;
+    if (fromNodeId && toNodeId && allNodes) {
+      const fromNode = allNodes[fromNodeId];
+      const toNode = allNodes[toNodeId];
+      if (fromNode && toNode) {
+        const ep = getConnectedArrowEndpoints(fromNode, toNode);
+        x1 = ep.x1; y1 = ep.y1;
+        edx = ep.x2 - ep.x1; edy = ep.y2 - ep.y1;
+      } else {
+        x1 = node.x; y1 = node.y; edx = dx; edy = dy;
+      }
+    } else {
+      x1 = node.x; y1 = node.y; edx = dx; edy = dy;
+    }
+    const lenSq = edx * edx + edy * edy;
     if (lenSq === 0) return Math.hypot(worldX - x1, worldY - y1) < 8 + hitPadding;
-    const t = Math.max(0, Math.min(1, ((worldX - x1) * dx + (worldY - y1) * dy) / lenSq));
-    const projX = x1 + t * dx;
-    const projY = y1 + t * dy;
+    const t = Math.max(0, Math.min(1, ((worldX - x1) * edx + (worldY - y1) * edy) / lenSq));
+    const projX = x1 + t * edx;
+    const projY = y1 + t * edy;
     return Math.hypot(worldX - projX, worldY - projY) < 8 + hitPadding;
   }
   if (node.props.type === "freehand") {
@@ -185,6 +199,45 @@ export function normalizeRect(
 /** Clamp zoom to reasonable bounds. */
 export function clampZoom(zoom: number): number {
   return Math.min(Math.max(zoom, 0.1), 5);
+}
+
+/** World-space center of a node's bounding box. */
+export function getNodeCenter(node: CanvasNode): { x: number; y: number } {
+  return { x: node.x + node.width / 2, y: node.y + node.height / 2 };
+}
+
+/**
+ * Point on the node's AABB boundary along the ray from the node's center
+ * toward (towardX, towardY). Falls back to center if direction is zero.
+ */
+export function getBBoxEdgePoint(
+  node: CanvasNode,
+  towardX: number,
+  towardY: number
+): { x: number; y: number } {
+  const cx = node.x + node.width / 2;
+  const cy = node.y + node.height / 2;
+  const dx = towardX - cx;
+  const dy = towardY - cy;
+  if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return { x: cx, y: cy };
+  const halfW = node.width / 2;
+  const halfH = node.height / 2;
+  const tx = dx !== 0 ? (dx > 0 ? halfW : -halfW) / dx : Infinity;
+  const ty = dy !== 0 ? (dy > 0 ? halfH : -halfH) / dy : Infinity;
+  const t = Math.min(Math.abs(tx), Math.abs(ty));
+  return { x: cx + t * dx, y: cy + t * dy };
+}
+
+/** Start and end world-space points for a connected arrow between two nodes. */
+export function getConnectedArrowEndpoints(
+  fromNode: CanvasNode,
+  toNode: CanvasNode
+): { x1: number; y1: number; x2: number; y2: number } {
+  const fc = getNodeCenter(fromNode);
+  const tc = getNodeCenter(toNode);
+  const p1 = getBBoxEdgePoint(fromNode, tc.x, tc.y);
+  const p2 = getBBoxEdgePoint(toNode, fc.x, fc.y);
+  return { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y };
 }
 
 /** Get the bounding box of multiple nodes. Returns null if empty. */

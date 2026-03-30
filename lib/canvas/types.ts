@@ -121,12 +121,15 @@ export type FreehandProps = {
 };
 
 // Arrow: x,y = start (world space); end = (x+dx, y+dy)
+// When fromNodeId + toNodeId are set, endpoints are computed live from node positions.
 export type ArrowProps = {
   dx: number;
   dy: number;
   stroke: string;
   strokeWidth: number;
   strokeStyle?: StrokeStyle;
+  fromNodeId?: string;
+  toNodeId?: string;
 };
 
 // Future node types — defined in schema now so the persisted format is stable.
