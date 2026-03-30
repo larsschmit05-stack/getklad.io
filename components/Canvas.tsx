@@ -2005,7 +2005,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           hasClipboard={hasClipboard}
           isImageNode={
             canvasContextMenu.nodeId
-              ? stateRef.current.document.nodes[canvasContextMenu.nodeId]?.props.type === "image"
+              ? stateRef.current.document.nodes[canvasContextMenu.nodeId]?.type === "image"
               : false
           }
           onCopy={handleCopyToClipboard}
@@ -2028,11 +2028,12 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             const nodeId = canvasContextMenu?.nodeId;
             if (!nodeId) return;
             const node = stateRef.current.document.nodes[nodeId];
-            if (!node || node.props.type !== "image") return;
+            if (!node || node.type !== "image") return;
+            const imageFit = (node.props as { fit?: string }).fit ?? "cover";
             dispatch({
               type: "UPDATE_NODE_PROPS",
               nodeId: node.id,
-              props: { fit: node.props.fit === "cover" ? "contain" : "cover" } as Partial<NodeProps>,
+              props: { fit: imageFit === "cover" ? "contain" : "cover" } as Partial<NodeProps>,
             });
           }}
           onClose={() => setCanvasContextMenu(null)}
@@ -2059,12 +2060,13 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           <button
             type="button"
             onClick={() => {
-              if (singleSelectedNode?.props.type !== "image") return;
+              if (singleSelectedNode?.type !== "image") return;
+              const imageFit = (singleSelectedNode.props as { fit?: string }).fit ?? "cover";
               dispatch({
                 type: "UPDATE_NODE_PROPS",
                 nodeId: singleSelectedNode.id,
                 props: {
-                  fit: singleSelectedNode.props.fit === "cover" ? "contain" : "cover",
+                  fit: imageFit === "cover" ? "contain" : "cover",
                 } as Partial<NodeProps>,
               });
             }}
