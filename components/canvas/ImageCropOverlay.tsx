@@ -219,87 +219,144 @@ export default function ImageCropOverlay({
         />
       </svg>
 
-      {/* Corner handles */}
-      <div
+      {/* Corner handles (L-shaped) */}
+      {/* Top-left */}
+      <svg
         onMouseDown={handleMouseDown("tl")}
         style={{
-          ...cornerHandleStyle,
+          position: "absolute",
           left: `${(cropBox.x - handleScreenSize) * zoom}px`,
           top: `${(cropBox.y - handleScreenSize) * zoom}px`,
+          width: `${handleScreenSize * 2 * zoom}px`,
+          height: `${handleScreenSize * 2 * zoom}px`,
           cursor: "nwse-resize",
           pointerEvents: "auto",
         }}
-      />
-      <div
+        viewBox="0 0 20 20"
+      >
+        <line x1="10" y1="0" x2="10" y2="10" stroke="#2563eb" strokeWidth="3" />
+        <line x1="0" y1="10" x2="10" y2="10" stroke="#2563eb" strokeWidth="3" />
+      </svg>
+
+      {/* Top-right */}
+      <svg
         onMouseDown={handleMouseDown("tr")}
         style={{
-          ...cornerHandleStyle,
+          position: "absolute",
           right: `${(nodeWidth - (cropBox.x + cropBox.width) - handleScreenSize) * zoom}px`,
           top: `${(cropBox.y - handleScreenSize) * zoom}px`,
+          width: `${handleScreenSize * 2 * zoom}px`,
+          height: `${handleScreenSize * 2 * zoom}px`,
           cursor: "nesw-resize",
           pointerEvents: "auto",
         }}
-      />
-      <div
+        viewBox="0 0 20 20"
+      >
+        <line x1="10" y1="0" x2="10" y2="10" stroke="#2563eb" strokeWidth="3" />
+        <line x1="10" y1="10" x2="20" y2="10" stroke="#2563eb" strokeWidth="3" />
+      </svg>
+
+      {/* Bottom-left */}
+      <svg
         onMouseDown={handleMouseDown("bl")}
         style={{
-          ...cornerHandleStyle,
+          position: "absolute",
           left: `${(cropBox.x - handleScreenSize) * zoom}px`,
           bottom: `${(nodeHeight - (cropBox.y + cropBox.height) - handleScreenSize) * zoom}px`,
+          width: `${handleScreenSize * 2 * zoom}px`,
+          height: `${handleScreenSize * 2 * zoom}px`,
           cursor: "nesw-resize",
           pointerEvents: "auto",
         }}
-      />
-      <div
+        viewBox="0 0 20 20"
+      >
+        <line x1="10" y1="10" x2="10" y2="20" stroke="#2563eb" strokeWidth="3" />
+        <line x1="0" y1="10" x2="10" y2="10" stroke="#2563eb" strokeWidth="3" />
+      </svg>
+
+      {/* Bottom-right */}
+      <svg
         onMouseDown={handleMouseDown("br")}
         style={{
-          ...cornerHandleStyle,
+          position: "absolute",
           right: `${(nodeWidth - (cropBox.x + cropBox.width) - handleScreenSize) * zoom}px`,
           bottom: `${(nodeHeight - (cropBox.y + cropBox.height) - handleScreenSize) * zoom}px`,
+          width: `${handleScreenSize * 2 * zoom}px`,
+          height: `${handleScreenSize * 2 * zoom}px`,
           cursor: "nwse-resize",
           pointerEvents: "auto",
         }}
-      />
+        viewBox="0 0 20 20"
+      >
+        <line x1="10" y1="10" x2="10" y2="20" stroke="#2563eb" strokeWidth="3" />
+        <line x1="10" y1="10" x2="20" y2="10" stroke="#2563eb" strokeWidth="3" />
+      </svg>
 
-      {/* Side handles */}
+      {/* Top handle (horizontal) */}
       <div
         onMouseDown={handleMouseDown("t")}
         style={{
-          ...sideHandleStyle,
-          left: `${(cropBox.x + cropBox.width / 2 - handleScreenSize / 2) * zoom}px`,
-          top: `${(cropBox.y - handleScreenSize) * zoom}px`,
+          position: "absolute",
+          left: `${(cropBox.x + 30) * zoom}px`,
+          right: `${(nodeWidth - cropBox.x - cropBox.width + 30) * zoom}px`,
+          top: `${(cropBox.y - handleScreenSize / 2) * zoom}px`,
+          height: `${handleScreenSize * zoom}px`,
+          backgroundColor: "#2563eb",
+          borderRadius: "2px",
           cursor: "ns-resize",
           pointerEvents: "auto",
+          minWidth: "30px",
         }}
       />
+
+      {/* Bottom handle (horizontal) */}
       <div
         onMouseDown={handleMouseDown("b")}
         style={{
-          ...sideHandleStyle,
-          left: `${(cropBox.x + cropBox.width / 2 - handleScreenSize / 2) * zoom}px`,
-          bottom: `${(nodeHeight - (cropBox.y + cropBox.height) - handleScreenSize) * zoom}px`,
+          position: "absolute",
+          left: `${(cropBox.x + 30) * zoom}px`,
+          right: `${(nodeWidth - cropBox.x - cropBox.width + 30) * zoom}px`,
+          bottom: `${(nodeHeight - cropBox.y - cropBox.height - handleScreenSize / 2) * zoom}px`,
+          height: `${handleScreenSize * zoom}px`,
+          backgroundColor: "#2563eb",
+          borderRadius: "2px",
           cursor: "ns-resize",
           pointerEvents: "auto",
+          minWidth: "30px",
         }}
       />
+
+      {/* Left handle (vertical) */}
       <div
         onMouseDown={handleMouseDown("l")}
         style={{
-          ...sideHandleStyle,
-          left: `${(cropBox.x - handleScreenSize) * zoom}px`,
-          top: `${(cropBox.y + cropBox.height / 2 - handleScreenSize) * zoom}px`,
+          position: "absolute",
+          left: `${(cropBox.x - handleScreenSize / 2) * zoom}px`,
+          top: `${(cropBox.y + 30) * zoom}px`,
+          bottom: `${(nodeHeight - cropBox.y - cropBox.height + 30) * zoom}px`,
+          width: `${handleScreenSize * zoom}px`,
+          backgroundColor: "#2563eb",
+          borderRadius: "2px",
           cursor: "ew-resize",
           pointerEvents: "auto",
+          minHeight: "30px",
         }}
       />
+
+      {/* Right handle (vertical) */}
       <div
         onMouseDown={handleMouseDown("r")}
         style={{
-          ...sideHandleStyle,
-          right: `${(nodeWidth - (cropBox.x + cropBox.width) - handleScreenSize) * zoom}px`,
-          top: `${(cropBox.y + cropBox.height / 2 - handleScreenSize) * zoom}px`,
+          position: "absolute",
+          right: `${(nodeWidth - cropBox.x - cropBox.width - handleScreenSize / 2) * zoom}px`,
+          top: `${(cropBox.y + 30) * zoom}px`,
+          bottom: `${(nodeHeight - cropBox.y - cropBox.height + 30) * zoom}px`,
+          width: `${handleScreenSize * zoom}px`,
+          backgroundColor: "#2563eb",
+          borderRadius: "2px",
           cursor: "ew-resize",
           pointerEvents: "auto",
+          minHeight: "30px",
         }}
       />
     </div>
