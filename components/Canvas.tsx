@@ -2071,8 +2071,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
               });
             }}
             style={imageToolbarButtonStyle}
-            title="Crop"
-            aria-label="Crop"
+            title={`Toggle crop mode (current: ${(singleSelectedNode?.props as { fit?: string }).fit ?? "cover"})`}
+            aria-label="Toggle image crop mode"
           >
             <Crop size={16} />
           </button>
