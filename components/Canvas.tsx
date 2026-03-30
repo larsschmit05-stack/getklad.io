@@ -106,6 +106,9 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   const [arrowPreview, setArrowPreview] = useState<{
     x1: number; y1: number; x2: number; y2: number;
   } | null>(null);
+  const [shapePreview, setShapePreview] = useState<{
+    x: number; y: number; width: number; height: number; type: string;
+  } | null>(null);
   const [hoveredResizeHandle, setHoveredResizeHandle] = useState<ResizeHandle | null>(null);
   const [activeResizeHandle, setActiveResizeHandle] = useState<ResizeHandle | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
@@ -783,8 +786,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       }
 
       if (mode.kind === "create-shape") {
+        const world = screenToWorld(e.clientX, e.clientY, cam);
         if (s.activeTool === "arrow") {
-          const world = screenToWorld(e.clientX, e.clientY, cam);
           const snapped = e.shiftKey
             ? snapArrowVector(world.x - mode.startWorldX, world.y - mode.startWorldY)
             : { dx: world.x - mode.startWorldX, dy: world.y - mode.startWorldY };
@@ -793,6 +796,43 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             y1: mode.startWorldY,
             x2: mode.startWorldX + snapped.dx,
             y2: mode.startWorldY + snapped.dy,
+          });
+        } else {
+          // Show preview for rect/ellipse/sticky shapes
+          const dragRect = normalizeRect(
+            mode.startWorldX,
+            mode.startWorldY,
+            world.x - mode.startWorldX,
+            world.y - mode.startWorldY
+          );
+          let x = dragRect.minX;
+          let y = dragRect.minY;
+          let w = dragRect.maxX - dragRect.minX;
+          let h = dragRect.maxY - dragRect.minY;
+
+          // Make squares for rect/ellipse/sticky
+          if (s.activeTool === "rect" || s.activeTool === "ellipse" || s.activeTool === "sticky") {
+            const side = Math.max(w, h);
+            if (world.x < mode.startWorldX) {
+              x = mode.startWorldX - side;
+            } else {
+              x = mode.startWorldX;
+            }
+            if (world.y < mode.startWorldY) {
+              y = mode.startWorldY - side;
+            } else {
+              y = mode.startWorldY;
+            }
+            w = side;
+            h = side;
+          }
+
+          setShapePreview({
+            x,
+            y,
+            width: w,
+            height: h,
+            type: s.activeTool,
           });
         }
         return;
@@ -838,6 +878,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         const ast = s.activeStyle;
 
         setArrowPreview(null);
+        setShapePreview(null);
 
         if (tool === "arrow") {
           const endWorld = screenToWorld(e.clientX, e.clientY, cam);
@@ -1351,6 +1392,36 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
+            </g>
+          )}
+
+          {/* Shape preview during drag */}
+          {shapePreview && (
+            <g opacity={0.5} pointerEvents="none">
+              {shapePreview.type === "ellipse" ? (
+                <ellipse
+                  cx={shapePreview.x + shapePreview.width / 2}
+                  cy={shapePreview.y + shapePreview.height / 2}
+                  rx={Math.max(0, shapePreview.width / 2)}
+                  ry={Math.max(0, shapePreview.height / 2)}
+                  fill={state.activeStyle.color}
+                  fillOpacity={state.activeStyle.fillStyle === "semi" ? 0.25 : state.activeStyle.fillStyle === "none" ? 0 : 1}
+                  stroke={state.activeStyle.color}
+                  strokeWidth={state.activeStyle.strokeWidth}
+                />
+              ) : (
+                <rect
+                  x={shapePreview.x}
+                  y={shapePreview.y}
+                  width={Math.max(0, shapePreview.width)}
+                  height={Math.max(0, shapePreview.height)}
+                  rx={2}
+                  fill={state.activeStyle.color}
+                  fillOpacity={state.activeStyle.fillStyle === "semi" ? 0.25 : state.activeStyle.fillStyle === "none" ? 0 : 1}
+                  stroke={state.activeStyle.color}
+                  strokeWidth={state.activeStyle.strokeWidth}
+                />
+              )}
             </g>
           )}
 
