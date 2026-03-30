@@ -9,7 +9,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Crop, Download } from "lucide-react";
+import { Crop, Download, ChevronLeft } from "lucide-react";
 import { jsPDF } from "jspdf";
 import type {
   CanvasDocument,
@@ -49,6 +49,8 @@ import ZoomControls from "./canvas/ZoomControls";
 import SaveIndicator from "./canvas/SaveIndicator";
 import StylePanel from "./canvas/StylePanel";
 import CanvasMenu from "./canvas/CanvasMenu";
+import Toast from "./canvas/Toast";
+import CanvasContextMenu from "./canvas/ContextMenu";
 import TextNode from "./canvas/nodes/TextNode";
 import StickyNode from "./canvas/nodes/StickyNode";
 import RectNode from "./canvas/nodes/RectNode";
@@ -127,8 +129,15 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
     targetNodeId: string | null;
   } | null>(null);
   const [arrowHoverNodeId, setArrowHoverNodeId] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [canvasContextMenu, setCanvasContextMenu] = useState<{
+    x: number;
+    y: number;
+    nodeId: string | null;
+  } | null>(null);
   const spaceDownRef = useRef(false);
   const clipboardRef = useRef<CanvasNode[]>([]);
+  const [hasClipboard, setHasClipboard] = useState(false);
   // Mutable interaction state — grouped in a single object to avoid
   // react-hooks/immutability warnings on individual refs captured by callbacks.
   const interaction = useRef({
@@ -145,6 +154,9 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   useEffect(() => {
     spaceDownRef.current = spaceDown;
   }, [spaceDown]);
+  useEffect(() => {
+    setHasClipboard(clipboardRef.current.length > 0);
+  }, []);
 
   // Autosave
   const saveStatus = useAutosave(projectId, state.document);
@@ -248,10 +260,81 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
     dispatch({ type: "CLEAR_SELECTION" });
   }, []);
 
+  const showToast = useCallback((msg: string) => setToastMessage(msg), []);
+
+  // ---------------------------------------------------------------------------
+  // Clipboard helpers (shared by keyboard + context menu)
+  // ---------------------------------------------------------------------------
+  const handleCopyToClipboard = useCallback(() => {
+    const ids = [...stateRef.current.selection.nodeIds];
+    if (ids.length === 0) return;
+    const nodes = stateRef.current.document.nodes;
+    clipboardRef.current = ids
+      .map((id) => nodes[id])
+      .filter(Boolean)
+      .map((n) => JSON.parse(JSON.stringify(n)));
+    showToast(`Copied ${ids.length} item${ids.length > 1 ? "s" : ""}`);
+  }, [showToast]);
+
+  const handlePasteFromClipboard = useCallback(() => {
+    if (clipboardRef.current.length === 0) return;
+    const cam = stateRef.current.document.camera;
+    // Calculate viewport center in world coords
+    const viewCenter = screenToWorld(
+      window.innerWidth / 2,
+      window.innerHeight / 2,
+      cam
+    );
+    // Calculate clipboard bounding box center
+    const items = clipboardRef.current;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of items) {
+      minX = Math.min(minX, n.x);
+      minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + n.width);
+      maxY = Math.max(maxY, n.y + n.height);
+    }
+    const clipCenterX = (minX + maxX) / 2;
+    const clipCenterY = (minY + maxY) / 2;
+    // Offset to center in viewport + small jitter for consecutive pastes
+    const offsetX = viewCenter.x - clipCenterX + 10;
+    const offsetY = viewCenter.y - clipCenterY + 10;
+
+    const newNodes = items.map((n) => {
+      const clone: CanvasNode = JSON.parse(JSON.stringify(n));
+      clone.id = generateId();
+      clone.x += offsetX;
+      clone.y += offsetY;
+      return clone;
+    });
+    dispatch({ type: "PASTE_NODES", nodes: newNodes });
+    // Update clipboard positions for cascading paste
+    clipboardRef.current = newNodes.map((n) =>
+      JSON.parse(JSON.stringify(n))
+    );
+    showToast("Pasted");
+  }, [showToast]);
+
+  const handleCopyToClipboardCallback = useCallback(() => {
+    handleCopyToClipboard();
+    setHasClipboard(true);
+  }, []);
+
+  const handleDeleteSelected = useCallback(() => {
+    const ids = stateRef.current.selection.nodeIds;
+    if (ids.size === 0) return;
+    dispatch({ type: "DELETE_SELECTED" });
+    showToast("Deleted \u2014 \u2318Z to undo");
+  }, [showToast]);
+
   // ---------------------------------------------------------------------------
   // Export callbacks
   // ---------------------------------------------------------------------------
   const handleExportSvg = useCallback(() => {
+    if (Object.keys(stateRef.current.document.nodes).length === 0) {
+      showToast("Nothing to export");
+      return;
+    }
     if (!svgRef.current) return;
     const svgEl = svgRef.current;
     const serializer = new XMLSerializer();
@@ -263,9 +346,14 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
     a.download = "canvas.svg";
     a.click();
     URL.revokeObjectURL(url);
-  }, []);
+    showToast("Exported as SVG");
+  }, [showToast]);
 
   const handleExportPng = useCallback(() => {
+    if (Object.keys(stateRef.current.document.nodes).length === 0) {
+      showToast("Nothing to export");
+      return;
+    }
     if (!svgRef.current) return;
     const svgEl = svgRef.current;
     const serializer = new XMLSerializer();
@@ -286,11 +374,16 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       a.download = "canvas.png";
       a.href = canvas.toDataURL("image/png");
       a.click();
+      showToast("Exported as PNG");
     };
     img.src = url;
-  }, []);
+  }, [showToast]);
 
   const handleExportPdf = useCallback(() => {
+    if (Object.keys(stateRef.current.document.nodes).length === 0) {
+      showToast("Nothing to export");
+      return;
+    }
     if (!svgRef.current) return;
     const svgEl = svgRef.current;
     const width = svgEl.clientWidth;
@@ -318,9 +411,10 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       });
       pdf.addImage(imgData, "PNG", 0, 0, width / 3.78, height / 3.78);
       pdf.save("canvas.pdf");
+      showToast("Exported as PDF");
     };
     img.src = url;
-  }, []);
+  }, [showToast]);
 
   // ---------------------------------------------------------------------------
   // Keyboard
@@ -374,7 +468,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       if (e.key === "Escape") {
         dispatch({ type: "CLEAR_SELECTION" });
       } else if (e.key === "Delete" || e.key === "Backspace") {
-        dispatch({ type: "DELETE_SELECTED" });
+        handleDeleteSelected();
         e.preventDefault();
       } else if (meta && e.key === "a") {
         dispatch({ type: "SELECT_ALL" });
@@ -386,36 +480,18 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         dispatch({ type: "UNDO" });
         e.preventDefault();
       } else if (meta && e.key === "c") {
-        const ids = [...stateRef.current.selection.nodeIds];
-        const nodes = stateRef.current.document.nodes;
-        clipboardRef.current = ids
-          .map((id) => nodes[id])
-          .filter(Boolean)
-          .map((n) => JSON.parse(JSON.stringify(n)));
+        handleCopyToClipboard();
         e.preventDefault();
       } else if (meta && e.key === "x") {
+        handleCopyToClipboard();
         const ids = [...stateRef.current.selection.nodeIds];
-        const nodes = stateRef.current.document.nodes;
-        clipboardRef.current = ids
-          .map((id) => nodes[id])
-          .filter(Boolean)
-          .map((n) => JSON.parse(JSON.stringify(n)));
-        if (ids.length > 0) dispatch({ type: "DELETE_SELECTED" });
+        if (ids.length > 0) {
+          dispatch({ type: "DELETE_SELECTED" });
+        }
         e.preventDefault();
       } else if (meta && e.key === "v") {
         if (clipboardRef.current.length > 0) {
-          const newNodes = clipboardRef.current.map((n) => {
-            const clone: CanvasNode = JSON.parse(JSON.stringify(n));
-            clone.id = generateId();
-            clone.x += 20;
-            clone.y += 20;
-            return clone;
-          });
-          dispatch({ type: "PASTE_NODES", nodes: newNodes });
-          // Update clipboard positions for cascading paste
-          clipboardRef.current = newNodes.map((n) =>
-            JSON.parse(JSON.stringify(n))
-          );
+          handlePasteFromClipboard();
           e.preventDefault();
         }
         // If clipboard empty, fall through for image paste handler
@@ -457,7 +533,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [handleFitContent]);
+  }, [handleFitContent, handleCopyToClipboard, handlePasteFromClipboard, handleDeleteSelected]);
 
   // ---------------------------------------------------------------------------
   // Wheel zoom
@@ -533,6 +609,9 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 
   const handlePointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
+      // Close context menu on any pointer down
+      setCanvasContextMenu(null);
+
       const s = stateRef.current;
       const cam = s.document.camera;
       const world = screenToWorld(e.clientX, e.clientY, cam);
@@ -1510,6 +1589,18 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         setHoveredNodeId(null);
         setArrowHoverNodeId(null);
       }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        const hit = hitTestNode(e.clientX, e.clientY);
+        if (hit && !selection.nodeIds.has(hit.id)) {
+          dispatch({ type: "SELECT_NODES", nodeIds: [hit.id], append: false });
+        }
+        setCanvasContextMenu({
+          x: e.clientX,
+          y: e.clientY,
+          nodeId: hit?.id ?? null,
+        });
+      }}
     >
       <Link
         href="/projects"
@@ -1528,6 +1619,11 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           mixBlendMode: "multiply",
         }}
       >
+        <ChevronLeft
+          size={14}
+          style={{ color: "var(--klad-ink3)", flexShrink: 0 }}
+          aria-hidden="true"
+        />
         <span
           aria-hidden="true"
           style={{
@@ -1874,7 +1970,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           hasSelection={selection.nodeIds.size > 0}
           onUndo={() => dispatch({ type: "UNDO" })}
           onRedo={() => dispatch({ type: "REDO" })}
-          onDelete={() => dispatch({ type: "DELETE_SELECTED" })}
+          onDelete={handleDeleteSelected}
           onDuplicate={() => {
             const ids = [...selection.nodeIds];
             if (ids.length > 0) dispatch({ type: "DUPLICATE_NODES", nodeIds: ids });
@@ -1900,6 +1996,48 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         onFitContent={handleFitContent}
       />
       <SaveIndicator status={saveStatus} />
+      <Toast message={toastMessage} onDismiss={() => setToastMessage(null)} />
+      {canvasContextMenu && (
+        <CanvasContextMenu
+          x={canvasContextMenu.x}
+          y={canvasContextMenu.y}
+          nodeId={canvasContextMenu.nodeId}
+          hasClipboard={hasClipboard}
+          isImageNode={
+            canvasContextMenu.nodeId
+              ? stateRef.current.document.nodes[canvasContextMenu.nodeId]?.props.type === "image"
+              : false
+          }
+          onCopy={handleCopyToClipboard}
+          onPaste={handlePasteFromClipboard}
+          onDuplicate={() => {
+            const ids = [...selection.nodeIds];
+            if (ids.length > 0) dispatch({ type: "DUPLICATE_NODES", nodeIds: ids });
+          }}
+          onDelete={handleDeleteSelected}
+          onSelectAll={handleSelectAll}
+          onBringToFront={() => {
+            const ids = [...selection.nodeIds];
+            if (ids.length > 0) dispatch({ type: "BRING_TO_FRONT", nodeIds: ids });
+          }}
+          onSendToBack={() => {
+            const ids = [...selection.nodeIds];
+            if (ids.length > 0) dispatch({ type: "SEND_TO_BACK", nodeIds: ids });
+          }}
+          onCrop={() => {
+            const nodeId = canvasContextMenu?.nodeId;
+            if (!nodeId) return;
+            const node = stateRef.current.document.nodes[nodeId];
+            if (!node || node.props.type !== "image") return;
+            dispatch({
+              type: "UPDATE_NODE_PROPS",
+              nodeId: node.id,
+              props: { fit: node.props.fit === "cover" ? "contain" : "cover" } as Partial<NodeProps>,
+            });
+          }}
+          onClose={() => setCanvasContextMenu(null)}
+        />
+      )}
       {hasImageSelection && imageToolbarPosition && (
         <div
           onPointerDown={(e) => e.stopPropagation()}
@@ -1959,7 +2097,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         onRedo={() => dispatch({ type: "REDO" })}
         onSelectAll={handleSelectAll}
         onDeselect={handleDeselect}
-        onDelete={() => dispatch({ type: "DELETE_SELECTED" })}
+        onDelete={handleDeleteSelected}
         onDuplicate={() => {
           const ids = Array.from(selection.nodeIds);
           if (ids.length > 0) {

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 
 interface ZoomControlsProps {
@@ -9,6 +10,44 @@ interface ZoomControlsProps {
   onFitContent: () => void;
 }
 
+function ZoomBtn({
+  icon,
+  title,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  onClick: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: "28px",
+        height: "28px",
+        border: "none",
+        backgroundColor: hovered ? "var(--klad-paper2, #ede9e2)" : "transparent",
+        color: hovered ? "var(--klad-ink, #1a1814)" : "var(--klad-ink2, #3d3a35)",
+        borderRadius: "2px",
+        cursor: "pointer",
+        transition: "background-color 0.08s, color 0.08s",
+        padding: 0,
+        outline: "none",
+      }}
+    >
+      {icon}
+    </button>
+  );
+}
+
 export default function ZoomControls({
   zoom,
   onZoomIn,
@@ -16,32 +55,47 @@ export default function ZoomControls({
   onFitContent,
 }: ZoomControlsProps) {
   return (
-    <div className="fixed bottom-4 left-4 z-50 flex items-center gap-1 rounded-lg border border-zinc-300 bg-white/95 px-1.5 py-1 shadow-md backdrop-blur-sm">
-      <button
-        title="Zoom out"
-        onClick={onZoomOut}
-        className="rounded-md p-1.5 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors"
+    <div
+      onPointerDown={(e) => e.stopPropagation()}
+      style={{
+        position: "fixed",
+        bottom: "16px",
+        left: "16px",
+        zIndex: 50,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "2px",
+        backgroundColor: "var(--klad-paper, #f7f4ef)",
+        border: "1px solid var(--klad-ink, #1a1814)",
+        boxShadow: "3px 3px 0 var(--klad-ink, #1a1814)",
+        padding: "4px 6px",
+        userSelect: "none",
+      }}
+    >
+      <ZoomBtn icon={<ZoomOut size={16} />} title="Zoom out" onClick={onZoomOut} />
+      <span
+        style={{
+          minWidth: "48px",
+          textAlign: "center",
+          fontSize: "12px",
+          fontFamily: "var(--font-ibm-plex-mono), ui-monospace, monospace",
+          fontVariantNumeric: "tabular-nums",
+          color: "var(--klad-ink3, #7a756e)",
+        }}
       >
-        <ZoomOut className="h-4 w-4" />
-      </button>
-      <span className="min-w-[48px] text-center text-xs text-zinc-500 tabular-nums">
         {Math.round(zoom * 100)}%
       </span>
-      <button
-        title="Zoom in"
-        onClick={onZoomIn}
-        className="rounded-md p-1.5 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors"
-      >
-        <ZoomIn className="h-4 w-4" />
-      </button>
-      <div className="mx-0.5 h-4 w-px bg-zinc-200" />
-      <button
-        title="Fit content (Ctrl+0)"
-        onClick={onFitContent}
-        className="rounded-md p-1.5 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 transition-colors"
-      >
-        <Maximize2 className="h-4 w-4" />
-      </button>
+      <ZoomBtn icon={<ZoomIn size={16} />} title="Zoom in" onClick={onZoomIn} />
+      <div
+        style={{
+          width: "1px",
+          height: "18px",
+          backgroundColor: "var(--klad-paper3, #e3ddd5)",
+          margin: "0 4px",
+          flexShrink: 0,
+        }}
+      />
+      <ZoomBtn icon={<Maximize2 size={16} />} title="Fit content (⌘0)" onClick={onFitContent} />
     </div>
   );
 }

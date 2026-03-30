@@ -1,6 +1,7 @@
 "use client";
 
 import type React from "react";
+import { useRef, useEffect } from "react";
 import {
   AlignStartHorizontal,
   AlignCenterHorizontal,
@@ -126,10 +127,35 @@ export default function StylePanel({
   onAlign,
   onZOrder,
 }: StylePanelProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    if (!hasSelection) {
+      mountedRef.current = false;
+      return;
+    }
+    if (mountedRef.current) return;
+    mountedRef.current = true;
+
+    const el = panelRef.current;
+    if (!el) return;
+    // Start off-screen and transparent
+    el.style.opacity = "0";
+    el.style.transform = "translateY(-50%) translateX(-12px)";
+    // Trigger transition on next frame
+    requestAnimationFrame(() => {
+      el.style.transition = "opacity 0.2s ease-out, transform 0.2s ease-out";
+      el.style.opacity = "1";
+      el.style.transform = "translateY(-50%) translateX(0)";
+    });
+  }, [hasSelection]);
+
   if (!hasSelection) return null;
 
   return (
     <div
+      ref={panelRef}
       onPointerDown={(e) => e.stopPropagation()}
       onPointerUp={(e) => e.stopPropagation()}
       onPointerMove={(e) => e.stopPropagation()}

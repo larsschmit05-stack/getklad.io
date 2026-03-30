@@ -136,7 +136,7 @@ export default function CanvasMenu({
       style={{
         position: "fixed",
         top: "12px",
-        left: "110px",
+        left: "130px",
         zIndex: 50,
       }}
     >
@@ -148,8 +148,8 @@ export default function CanvasMenu({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          width: "35px",
-          height: "35px",
+          width: "31.5px",
+          height: "31.5px",
           backgroundColor: isOpen
             ? "var(--klad-yellow, #f5e642)"
             : "var(--klad-paper, #f7f4ef)",
@@ -180,7 +180,7 @@ export default function CanvasMenu({
         }}
         title="Canvas menu"
       >
-        <MoreHorizontal size={18} />
+        <MoreHorizontal size={16} />
       </button>
 
       {/* Dropdown menu */}

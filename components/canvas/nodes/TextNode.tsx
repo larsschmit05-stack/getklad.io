@@ -65,6 +65,19 @@ function TextNode({
     node.props,
   ]);
 
+  // Resize when style props change while not editing (e.g., font size from StylePanel)
+  useLayoutEffect(() => {
+    if (textType !== "text" || isEditing) return;
+    if (!text.trim()) return;
+    const { width: measuredWidth, height: measuredHeight } = measureTextNodeSize(node.props);
+    if (
+      Math.abs(measuredWidth - node.width) > 1 ||
+      Math.abs(measuredHeight - node.height) > 1
+    ) {
+      onSizeChange?.(measuredWidth, measuredHeight);
+    }
+  }, [fontSize, fontFamily, fontStyle, fontWeight, text, node.props, onSizeChange, textType, isEditing, node.width, node.height]);
+
   useLayoutEffect(() => {
     if (!isEditing || !editorRef.current) return;
 
