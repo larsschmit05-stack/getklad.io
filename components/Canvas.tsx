@@ -39,6 +39,7 @@ import { measureTextNodeSize } from "@/lib/canvas/text";
 
 import Background from "./canvas/Background";
 import SelectionOverlay from "./canvas/SelectionOverlay";
+import ActionBar from "./canvas/ActionBar";
 import Toolbar from "./canvas/Toolbar";
 import ZoomControls from "./canvas/ZoomControls";
 import SaveIndicator from "./canvas/SaveIndicator";
@@ -245,6 +246,12 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       } else if (meta && e.key === "z") {
         dispatch({ type: "UNDO" });
         e.preventDefault();
+      } else if (meta && e.key === "d") {
+        const ids = [...stateRef.current.selection.nodeIds];
+        if (ids.length > 0) {
+          dispatch({ type: "DUPLICATE_NODES", nodeIds: ids });
+          e.preventDefault();
+        }
       } else if (meta && e.key === "0") {
         handleFitContent();
         e.preventDefault();
@@ -982,7 +989,22 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 
   const handleTextBlur = useCallback((nodeId: string) => {
     const node = stateRef.current.document.nodes[nodeId];
-    if (node?.type === "text") {
+    if (!node) return;
+
+    // Delete empty text and sticky nodes
+    const isEmpty =
+      (node.type === "text" || node.type === "sticky") &&
+      "text" in node.props &&
+      !(node.props.text as string).trim();
+
+    if (isEmpty) {
+      // Select the node and delete it
+      dispatch({ type: "SELECT_NODES", nodeIds: [nodeId] });
+      dispatch({ type: "DELETE_SELECTED" });
+      return;
+    }
+
+    if (node.type === "text") {
       dispatch({ type: "CLEAR_SELECTION" });
       return;
     }
@@ -1343,6 +1365,20 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       </svg>
 
       {/* UI overlays */}
+      {activeTool === "select" && (
+        <ActionBar
+          canUndo={state.undoStack.length > 0}
+          canRedo={state.redoStack.length > 0}
+          hasSelection={selection.nodeIds.size > 0}
+          onUndo={() => dispatch({ type: "UNDO" })}
+          onRedo={() => dispatch({ type: "REDO" })}
+          onDelete={() => dispatch({ type: "DELETE_SELECTED" })}
+          onDuplicate={() => {
+            const ids = [...selection.nodeIds];
+            if (ids.length > 0) dispatch({ type: "DUPLICATE_NODES", nodeIds: ids });
+          }}
+        />
+      )}
       <Toolbar
         activeTool={activeTool}
         onToolChange={handleToolChange}
