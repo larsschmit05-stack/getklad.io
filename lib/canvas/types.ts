@@ -143,6 +143,10 @@ export type ImageProps = {
   mimeType?: string;
   originalWidth?: number;
   originalHeight?: number;
+  cropX?: number; // left edge, fraction of original image (0..1)
+  cropY?: number; // top edge, fraction of original image (0..1)
+  cropW?: number; // width fraction of original image (0..1)
+  cropH?: number; // height fraction of original image (0..1)
 };
 
 export type AiOutputProps = {

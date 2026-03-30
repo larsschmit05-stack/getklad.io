@@ -33,6 +33,7 @@ import {
   aabbIntersects,
   getNodeBounds,
   hitTestResizeHandles,
+  hitTestCropHandles,
   worldToScreen,
   getBBoxEdgePoint,
   getConnectedArrowEndpoints,
@@ -51,6 +52,7 @@ import StylePanel from "./canvas/StylePanel";
 import CanvasMenu from "./canvas/CanvasMenu";
 import Toast from "./canvas/Toast";
 import CanvasContextMenu from "./canvas/ContextMenu";
+import CropOverlay from "./canvas/CropOverlay";
 import TextNode from "./canvas/nodes/TextNode";
 import StickyNode from "./canvas/nodes/StickyNode";
 import RectNode from "./canvas/nodes/RectNode";
@@ -72,6 +74,8 @@ interface CanvasProps {
 // Interaction modes during pointer drag
 // ---------------------------------------------------------------------------
 
+type CropHandle = "tl" | "tc" | "tr" | "ml" | "mr" | "bl" | "bc" | "br";
+
 type DragMode =
   | { kind: "none" }
   | { kind: "pan"; startX: number; startY: number; startCamX: number; startCamY: number }
@@ -92,7 +96,18 @@ type DragMode =
     }
   | { kind: "draw"; nodeId: string }
   | { kind: "create-shape"; startWorldX: number; startWorldY: number; nodeId: string | null }
-  | { kind: "connect-arrow"; fromNodeId: string };
+  | { kind: "connect-arrow"; fromNodeId: string }
+  | {
+      kind: "crop";
+      nodeId: string;
+      handle: CropHandle;
+      origCropX: number;
+      origCropY: number;
+      origCropW: number;
+      origCropH: number;
+      startWorldX: number;
+      startWorldY: number;
+    };
 
 // ---------------------------------------------------------------------------
 // Component
@@ -138,6 +153,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   const spaceDownRef = useRef(false);
   const clipboardRef = useRef<CanvasNode[]>([]);
   const [hasClipboard, setHasClipboard] = useState(false);
+  const [cropModeNodeId, setCropModeNodeId] = useState<string | null>(null);
+  const [pendingCrop, setPendingCrop] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   // Mutable interaction state — grouped in a single object to avoid
   // react-hooks/immutability warnings on individual refs captured by callbacks.
   const interaction = useRef({
@@ -328,6 +345,31 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   }, [showToast]);
 
   // ---------------------------------------------------------------------------
+  // Crop mode callbacks
+  // ---------------------------------------------------------------------------
+  const handleCropApply = useCallback(() => {
+    if (!cropModeNodeId || !pendingCrop) return;
+    dispatch({
+      type: "UPDATE_NODE_PROPS",
+      nodeId: cropModeNodeId,
+      props: {
+        cropX: pendingCrop.x,
+        cropY: pendingCrop.y,
+        cropW: pendingCrop.w,
+        cropH: pendingCrop.h,
+      } as Partial<NodeProps>,
+    });
+    setCropModeNodeId(null);
+    setPendingCrop(null);
+    showToast("Crop applied");
+  }, [cropModeNodeId, pendingCrop, showToast]);
+
+  const handleCropCancel = useCallback(() => {
+    setCropModeNodeId(null);
+    setPendingCrop(null);
+  }, []);
+
+  // ---------------------------------------------------------------------------
   // Export callbacks
   // ---------------------------------------------------------------------------
   const handleExportSvg = useCallback(() => {
@@ -421,6 +463,20 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   // ---------------------------------------------------------------------------
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      // Crop mode shortcuts
+      if (cropModeNodeId) {
+        if (e.key === "Enter") {
+          handleCropApply();
+          e.preventDefault();
+          return;
+        }
+        if (e.key === "Escape") {
+          handleCropCancel();
+          e.preventDefault();
+          return;
+        }
+      }
+
       if (e.key === " ") {
         setSpaceDown(true);
         return;
@@ -708,6 +764,59 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         (interaction.current as any).dragStartClientX = e.clientX; // Store for hasMoved calculation
         (interaction.current as any).dragStartClientY = e.clientY;
         (e.target as HTMLElement).setPointerCapture(e.pointerId);
+        return;
+      }
+
+      // Crop mode: check crop handles if in crop mode
+      if (cropModeNodeId && pendingCrop) {
+        const cropNode = s.document.nodes[cropModeNodeId];
+        if (cropNode && cropNode.type === "image") {
+          const cx = pendingCrop.x;
+          const cy = pendingCrop.y;
+          const cw = pendingCrop.w;
+          const ch = pendingCrop.h;
+          const cropLeft = cx * cropNode.width;
+          const cropTop = cy * cropNode.height;
+          const cropRight = (cx + cw) * cropNode.width;
+          const cropBottom = (cy + ch) * cropNode.height;
+          const cropWidth = cw * cropNode.width;
+          const cropHeight = ch * cropNode.height;
+          const worldLeft = cropNode.x + cropLeft;
+          const worldTop = cropNode.y + cropTop;
+          const worldRight = cropNode.x + cropRight;
+          const worldBottom = cropNode.y + cropBottom;
+          const worldCx = (worldLeft + worldRight) / 2;
+          const worldCy = (worldTop + worldBottom) / 2;
+
+          const cropBounds = {
+            left: worldLeft,
+            top: worldTop,
+            right: worldRight,
+            bottom: worldBottom,
+            centerX: worldCx,
+            centerY: worldCy,
+          };
+
+          const cropHandle = hitTestCropHandles(e.clientX, e.clientY, cropBounds, cam);
+          if (cropHandle) {
+            interaction.current.dragMode = {
+              kind: "crop",
+              nodeId: cropModeNodeId,
+              handle: cropHandle,
+              origCropX: pendingCrop.x,
+              origCropY: pendingCrop.y,
+              origCropW: pendingCrop.w,
+              origCropH: pendingCrop.h,
+              startWorldX: world.x,
+              startWorldY: world.y,
+            };
+            (e.target as HTMLElement).setPointerCapture(e.pointerId);
+            return;
+          }
+        }
+
+        // Clicked outside crop window → auto-apply crop (Figma behavior)
+        handleCropApply();
         return;
       }
 
@@ -1023,6 +1132,64 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           height: newH,
           props: resizeProps,
         });
+        return;
+      }
+
+      if (mode.kind === "crop") {
+        const world = screenToWorld(e.clientX, e.clientY, cam);
+        const cropNode = s.document.nodes[mode.nodeId];
+        if (!cropNode) return;
+
+        const dx = world.x - mode.startWorldX;
+        const dy = world.y - mode.startWorldY;
+
+        // Compute new crop values based on which handle was dragged
+        let newCropX = mode.origCropX;
+        let newCropY = mode.origCropY;
+        let newCropW = mode.origCropW;
+        let newCropH = mode.origCropH;
+
+        const handle = mode.handle;
+
+        // Handle dragging — convert world delta to crop fraction delta
+        const dxFraction = dx / cropNode.width;
+        const dyFraction = dy / cropNode.height;
+
+        if (handle === "tl") {
+          newCropX = Math.max(0, mode.origCropX + dxFraction);
+          newCropY = Math.max(0, mode.origCropY + dyFraction);
+          newCropW = Math.min(1, mode.origCropW - dxFraction);
+          newCropH = Math.min(1, mode.origCropH - dyFraction);
+        } else if (handle === "tc") {
+          newCropY = Math.max(0, mode.origCropY + dyFraction);
+          newCropH = Math.min(1, mode.origCropH - dyFraction);
+        } else if (handle === "tr") {
+          newCropY = Math.max(0, mode.origCropY + dyFraction);
+          newCropW = Math.min(1, mode.origCropW + dxFraction);
+          newCropH = Math.min(1, mode.origCropH - dyFraction);
+        } else if (handle === "ml") {
+          newCropX = Math.max(0, mode.origCropX + dxFraction);
+          newCropW = Math.min(1, mode.origCropW - dxFraction);
+        } else if (handle === "mr") {
+          newCropW = Math.min(1, mode.origCropW + dxFraction);
+        } else if (handle === "bl") {
+          newCropX = Math.max(0, mode.origCropX + dxFraction);
+          newCropW = Math.min(1, mode.origCropW - dxFraction);
+          newCropH = Math.min(1, mode.origCropH + dyFraction);
+        } else if (handle === "bc") {
+          newCropH = Math.min(1, mode.origCropH + dyFraction);
+        } else if (handle === "br") {
+          newCropW = Math.min(1, mode.origCropW + dxFraction);
+          newCropH = Math.min(1, mode.origCropH + dyFraction);
+        }
+
+        // Clamp: min crop size 5%, don't exceed bounds
+        newCropW = Math.max(0.05, Math.min(newCropW, 1 - newCropX));
+        newCropH = Math.max(0.05, Math.min(newCropH, 1 - newCropY));
+        newCropX = Math.max(0, Math.min(newCropX, 1 - newCropW));
+        newCropY = Math.max(0, Math.min(newCropY, 1 - newCropH));
+
+        setPendingCrop({ x: newCropX, y: newCropY, w: newCropW, h: newCropH });
         return;
       }
 
@@ -1946,6 +2113,18 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             stylePreviewNonce={stylePreviewNonce}
             allNodes={doc.nodes}
           />
+          {cropModeNodeId && pendingCrop && doc.nodes[cropModeNodeId] && (
+            <CropOverlay
+              node={doc.nodes[cropModeNodeId]}
+              camera={cam}
+              cropX={pendingCrop.x}
+              cropY={pendingCrop.y}
+              cropW={pendingCrop.w}
+              cropH={pendingCrop.h}
+              onApply={handleCropApply}
+              onCancel={handleCropCancel}
+            />
+          )}
         </g>
       </svg>
 
@@ -2029,11 +2208,13 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             if (!nodeId) return;
             const node = stateRef.current.document.nodes[nodeId];
             if (!node || node.type !== "image") return;
-            const imageFit = (node.props as { fit?: string }).fit ?? "cover";
-            dispatch({
-              type: "UPDATE_NODE_PROPS",
-              nodeId: node.id,
-              props: { fit: imageFit === "cover" ? "contain" : "cover" } as Partial<NodeProps>,
+            setCropModeNodeId(node.id);
+            const p = node.props as { cropX?: number; cropY?: number; cropW?: number; cropH?: number };
+            setPendingCrop({
+              x: p.cropX ?? 0,
+              y: p.cropY ?? 0,
+              w: p.cropW ?? 1,
+              h: p.cropH ?? 1,
             });
           }}
           onClose={() => setCanvasContextMenu(null)}
@@ -2061,18 +2242,18 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             type="button"
             onClick={() => {
               if (singleSelectedNode?.type !== "image") return;
-              const imageFit = (singleSelectedNode.props as { fit?: string }).fit ?? "cover";
-              dispatch({
-                type: "UPDATE_NODE_PROPS",
-                nodeId: singleSelectedNode.id,
-                props: {
-                  fit: imageFit === "cover" ? "contain" : "cover",
-                } as Partial<NodeProps>,
+              setCropModeNodeId(singleSelectedNode.id);
+              const p = singleSelectedNode.props as { cropX?: number; cropY?: number; cropW?: number; cropH?: number };
+              setPendingCrop({
+                x: p.cropX ?? 0,
+                y: p.cropY ?? 0,
+                w: p.cropW ?? 1,
+                h: p.cropH ?? 1,
               });
             }}
             style={imageToolbarButtonStyle}
-            title={`Toggle crop mode (current: ${(singleSelectedNode?.props as { fit?: string }).fit ?? "cover"})`}
-            aria-label="Toggle image crop mode"
+            title="Crop image"
+            aria-label="Crop image"
           >
             <Crop size={16} />
           </button>

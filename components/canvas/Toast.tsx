@@ -29,7 +29,7 @@ export default function Toast({ message, onDismiss }: ToastProps) {
     <div
       style={{
         position: "fixed",
-        bottom: "100px",
+        top: "20px",
         left: "50%",
         transform: "translateX(-50%)",
         zIndex: 1000,

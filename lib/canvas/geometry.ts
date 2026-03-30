@@ -333,3 +333,53 @@ export function hitTestResizeHandles(
   }
   return null;
 }
+
+/**
+ * Hit-test crop handles (8 corners/edges) in a crop overlay.
+ * @param screenX Screen X coordinate
+ * @param screenY Screen Y coordinate
+ * @param cropWorldBounds Crop rectangle in world coordinates
+ * @param camera Camera with zoom
+ * @param handleSize Size of hit zone in screen pixels (default 12)
+ * @returns Handle name or null
+ */
+export function hitTestCropHandles(
+  screenX: number,
+  screenY: number,
+  cropWorldBounds: {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+    centerX: number;
+    centerY: number;
+  },
+  camera: Camera,
+  handleSize: number = 12
+): "tl" | "tc" | "tr" | "ml" | "mr" | "bl" | "bc" | "br" | null {
+  const half = handleSize / 2;
+  const { left, top, right, bottom, centerX, centerY } = cropWorldBounds;
+
+  const handles = [
+    { key: "tl" as const, x: left, y: top },
+    { key: "tc" as const, x: centerX, y: top },
+    { key: "tr" as const, x: right, y: top },
+    { key: "ml" as const, x: left, y: centerY },
+    { key: "mr" as const, x: right, y: centerY },
+    { key: "bl" as const, x: left, y: bottom },
+    { key: "bc" as const, x: centerX, y: bottom },
+    { key: "br" as const, x: right, y: bottom },
+  ];
+
+  for (const handle of handles) {
+    const screenPos = worldToScreen(handle.x, handle.y, camera);
+    if (
+      Math.abs(screenX - screenPos.x) <= half &&
+      Math.abs(screenY - screenPos.y) <= half
+    ) {
+      return handle.key;
+    }
+  }
+
+  return null;
+}
