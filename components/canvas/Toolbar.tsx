@@ -35,11 +35,6 @@ export default function Toolbar({ activeTool, onToolChange, onImageClick }: Tool
   return (
     <div
       style={{
-        position: "fixed",
-        left: "50%",
-        bottom: "16px",
-        transform: "translateX(-50%)",
-        zIndex: 50,
         display: "flex",
         flexDirection: "row",
         gap: "4px",

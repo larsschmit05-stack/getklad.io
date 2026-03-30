@@ -66,6 +66,7 @@ export type CanvasAction =
   | { type: "SET_EDITING"; nodeId: string | null }
   | { type: "SET_ACTIVE_STYLE"; style: Partial<ActiveStyle> }
   | { type: "ALIGN_NODES"; nodeIds: string[]; alignment: AlignmentType }
+  | { type: "DUPLICATE_NODES"; nodeIds: string[] }
   | { type: "UNDO" }
   | { type: "REDO" };
 
@@ -212,6 +213,28 @@ export function canvasReducer(
         },
         selection: { nodeIds: new Set(), marquee: null },
         editingNodeId: null,
+      };
+    }
+
+    case "DUPLICATE_NODES": {
+      if (action.nodeIds.length === 0) return state;
+      const withUndo = pushUndo(state);
+      const nodes = { ...withUndo.document.nodes };
+      const nodeOrder = [...withUndo.document.nodeOrder];
+      const newIds: string[] = [];
+      const OFFSET = 20;
+      for (const id of action.nodeIds) {
+        const n = nodes[id];
+        if (!n) continue;
+        const newId = generateId();
+        nodes[newId] = { ...n, id: newId, x: n.x + OFFSET, y: n.y + OFFSET };
+        nodeOrder.push(newId);
+        newIds.push(newId);
+      }
+      return {
+        ...withUndo,
+        document: { ...withUndo.document, nodes, nodeOrder },
+        selection: { nodeIds: new Set(newIds), marquee: null },
       };
     }
 

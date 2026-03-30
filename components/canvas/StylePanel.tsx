@@ -74,13 +74,13 @@ export default function StylePanel({
         zIndex: 1000,
         display: "flex",
         flexDirection: "column",
-        gap: "8px",
+        gap: "6px",
         backgroundColor: "var(--klad-paper, #f7f4ef)",
         border: "1px solid var(--klad-ink, #1a1814)",
         boxShadow: "3px 3px 0 var(--klad-ink, #1a1814)",
-        padding: "12px",
+        padding: "8px",
         borderRadius: "2px",
-        maxWidth: "280px",
+        maxWidth: "220px",
         pointerEvents: "auto",
       }}
     >
@@ -269,7 +269,7 @@ export default function StylePanel({
 
       {/* Color Palette */}
       {!showImageControls && (
-      <div style={showTextControls ? { borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" } : undefined}>
+      <div style={showTextControls ? { borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "6px" } : undefined}>
         <label
           style={{
             display: "block",
@@ -287,7 +287,7 @@ export default function StylePanel({
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(4, 1fr)",
-            gap: "4px",
+            gap: "3px",
           }}
         >
           {PALETTE.map((color) => (
@@ -299,8 +299,8 @@ export default function StylePanel({
               }}
               title={color}
               style={{
-                width: "28px",
-                height: "28px",
+                width: "24px",
+                height: "24px",
                 backgroundColor: color,
                 border:
                   activeStyle.color === color
@@ -319,32 +319,22 @@ export default function StylePanel({
 
       {/* Stroke Width */}
       {(!showTextControls || showShapeTextControls) && !showImageControls && (
-      <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" }}>
-        <label
-          style={{
-            display: "block",
-            fontSize: "11px",
-            fontWeight: "600",
-            color: "var(--klad-ink3, #7a756e)",
-            marginBottom: "6px",
-            textTransform: "uppercase",
-            letterSpacing: "0.5px",
-          }}
-        >
-          Stroke Width
-        </label>
-        <div style={{ display: "flex", gap: "4px" }}>
+      <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "6px" }}>
+        <div style={{ display: "flex", gap: "3px" }}>
           {[1, 2, 3, 4, 6].map((width) => (
             <button
               key={width}
               type="button"
-              onClick={() => {
-                onStyleChange({ strokeWidth: width });
-              }}
+              onClick={() => onStyleChange({ strokeWidth: width })}
+              title={`Width ${width}`}
               style={{
                 flex: 1,
-                padding: "6px",
-                fontSize: "12px",
+                padding: "4px",
+                height: "28px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "11px",
                 fontWeight: activeStyle.strokeWidth === width ? "600" : "400",
                 backgroundColor:
                   activeStyle.strokeWidth === width
@@ -357,7 +347,9 @@ export default function StylePanel({
                 pointerEvents: "auto",
               }}
             >
-              {width}
+              <svg width="14" height="2" viewBox="0 0 14 2" style={{ display: "block" }}>
+                <line x1="0" y1="1" x2="14" y2="1" stroke="currentColor" strokeWidth={width * 0.3} strokeLinecap="round" />
+              </svg>
             </button>
           ))}
         </div>
@@ -366,34 +358,21 @@ export default function StylePanel({
 
       {/* Stroke Style */}
       {(!showTextControls || showShapeTextControls) && !showImageControls && (
-      <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" }}>
-        <label
-          style={{
-            display: "block",
-            fontSize: "11px",
-            fontWeight: "600",
-            color: "var(--klad-ink3, #7a756e)",
-            marginBottom: "6px",
-            textTransform: "uppercase",
-            letterSpacing: "0.5px",
-          }}
-        >
-          Line Style
-        </label>
-        <div style={{ display: "flex", gap: "4px" }}>
+      <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "6px" }}>
+        <div style={{ display: "flex", gap: "3px" }}>
           {(["solid", "dashed", "dotted"] as StrokeStyle[]).map((style) => (
             <button
               key={style}
               type="button"
-              onClick={() => {
-                onStyleChange({ strokeStyle: style });
-              }}
+              onClick={() => onStyleChange({ strokeStyle: style })}
+              title={style.charAt(0).toUpperCase() + style.slice(1)}
               style={{
                 flex: 1,
-                padding: "6px",
-                fontSize: "12px",
-                textTransform: "capitalize",
-                fontWeight: activeStyle.strokeStyle === style ? "600" : "400",
+                padding: "4px",
+                height: "28px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
                 backgroundColor:
                   activeStyle.strokeStyle === style
                     ? "var(--klad-yellow, #f5e642)"
@@ -405,7 +384,17 @@ export default function StylePanel({
                 pointerEvents: "auto",
               }}
             >
-              {style}
+              <svg width="16" height="2" viewBox="0 0 16 2" style={{ display: "block" }}>
+                {style === "solid" && (
+                  <line x1="0" y1="1" x2="16" y2="1" stroke="currentColor" strokeWidth="2" />
+                )}
+                {style === "dashed" && (
+                  <line x1="0" y1="1" x2="16" y2="1" stroke="currentColor" strokeWidth="2" strokeDasharray="3,2" />
+                )}
+                {style === "dotted" && (
+                  <line x1="0" y1="1" x2="16" y2="1" stroke="currentColor" strokeWidth="2" strokeDasharray="1,1" />
+                )}
+              </svg>
             </button>
           ))}
         </div>
@@ -414,34 +403,21 @@ export default function StylePanel({
 
       {/* Fill Style */}
       {(!showTextControls || showShapeTextControls) && !showImageControls && (
-      <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "8px" }}>
-        <label
-          style={{
-            display: "block",
-            fontSize: "11px",
-            fontWeight: "600",
-            color: "var(--klad-ink3, #7a756e)",
-            marginBottom: "6px",
-            textTransform: "uppercase",
-            letterSpacing: "0.5px",
-          }}
-        >
-          Fill
-        </label>
-        <div style={{ display: "flex", gap: "4px" }}>
+      <div style={{ borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "6px" }}>
+        <div style={{ display: "flex", gap: "3px" }}>
           {(["none", "semi", "solid"] as FillStyle[]).map((style) => (
             <button
               key={style}
               type="button"
-              onClick={() => {
-                onStyleChange({ fillStyle: style });
-              }}
+              onClick={() => onStyleChange({ fillStyle: style })}
+              title={style === "none" ? "Empty" : style === "semi" ? "Half Fill" : "Solid Fill"}
               style={{
                 flex: 1,
-                padding: "6px",
-                fontSize: "12px",
-                textTransform: "capitalize",
-                fontWeight: activeStyle.fillStyle === style ? "600" : "400",
+                padding: "4px",
+                height: "28px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
                 backgroundColor:
                   activeStyle.fillStyle === style
                     ? "var(--klad-yellow, #f5e642)"
@@ -453,7 +429,20 @@ export default function StylePanel({
                 pointerEvents: "auto",
               }}
             >
-              {style}
+              <svg width="16" height="16" viewBox="0 0 16 16" style={{ display: "block" }}>
+                {style === "none" && (
+                  <rect x="2" y="2" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                )}
+                {style === "semi" && (
+                  <>
+                    <rect x="2" y="2" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                    <rect x="2" y="8" width="12" height="6" fill="currentColor" opacity="0.4" />
+                  </>
+                )}
+                {style === "solid" && (
+                  <rect x="2" y="2" width="12" height="12" fill="currentColor" stroke="currentColor" strokeWidth="1.5" />
+                )}
+              </svg>
             </button>
           ))}
         </div>
