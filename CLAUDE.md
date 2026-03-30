@@ -107,6 +107,27 @@ The three-dot menu button (`components/canvas/CanvasMenu.tsx`) provides canvas-w
 
 **Important layout note:** Fixed-position UI elements need to account for the header/logo area. The logo takes ~100px of horizontal space from the left. Any new fixed-position buttons should use `left >= 110px` to avoid collisions.
 
+#### Image Crop Overlay (ImageCropOverlay.tsx)
+
+The crop overlay renders as a fixed-position HTML layer on top of the canvas image node. It has two coordinate spaces:
+- **World space** (`cropBox.x/y/width/height`): used in the SVG viewBox for dark overlay + blue outline
+- **Screen space** (`cropBox * zoom` = `cx/cy/cw/ch`): used for HTML handle positioning
+
+**Corner handles** use CSS border L-shapes that wrap the **outside** of each image corner like photo-mount brackets. Each corner uses two borders that match the corner's character shape:
+
+| Corner | Borders | Position (left, top) | Arms extend |
+|--------|---------|---------------------|-------------|
+| TL `┌` | `border-top + border-left` | `cx - lineWidth, cy - lineWidth` | → right along top, ↓ down along left |
+| TR `┐` | `border-top + border-right` | `cx + cw - armLength, cy - lineWidth` | ← left along top, ↓ down along right |
+| BL `└` | `border-bottom + border-left` | `cx - lineWidth, cy + ch - armLength` | → right along bottom, ↑ up along left |
+| BR `┘` | `border-bottom + border-right` | `cx + cw - armLength, cy + ch - armLength` | ← left along bottom, ↑ up along right |
+
+Each div is `(armLength + lineWidth) × (armLength + lineWidth)` with `box-sizing: border-box`. The `lineWidth` offset in the position ensures the border sits on the **outside** of the image edge, not inside it.
+
+**Edge handles** (T/B/L/R) are small bars flush against the outside of each edge, centered on the midpoint. Each has a larger invisible hit area (`hitArea` px) with the visible bar aligned toward the image edge via flexbox (`align-items: flex-end` for top, `flex-start` for bottom, etc.).
+
+**Gotcha — CSS border direction vs. L-shape orientation:** CSS `border-top` draws at the **top** of the div and `border-left` at the **left**. The L-corner where they meet is at the **top-left** of the div. To wrap the outside of TL, you need `border-top + border-left` with the div offset by `-lineWidth` so the border's outer edge sits just outside the image. Do NOT swap border sides (e.g., using `border-bottom + border-right` for TL) — that puts the L-corner at the opposite end of the div, making it float away from the image corner.
+
 ### Design system
 
 The app uses the editorial palette defined in `app/globals.css`:
@@ -182,6 +203,14 @@ NEXT_PUBLIC_APP_URL         # used for magic-link emailRedirectTo
 - Stroke: `strokeLinecap: "butt"` (never "round" — prevents dashed arrow warping)
 
 **Gotcha:** If preview uses different endpoint logic than final rendering, user sees jump/warp on commit. Always use `getBBoxEdgePoint` for both.
+
+### Image Crop Handle Positioning
+
+**Pattern:** Corner crop handles are CSS `div` elements with two borders forming an L-shape. The L wraps the **outside** of the image corner — arms run along the outer edges of the image. All positions are computed from `cropBox × zoom` so they're fully dynamic.
+
+**Critical rule — border side = div side:** For TL corner (`┌`), use `border-top + border-left`. The CSS border is drawn at the **same side of the div as its name** — `border-top` is at the top, `border-left` is at the left. They meet at the div's **top-left** corner. Position the div at `(cx - lineWidth, cy - lineWidth)` so its top-left corner aligns with the image corner, with the border sitting just outside the image edge.
+
+**Gotcha — swapping borders inverts the L:** Using `border-bottom + border-right` for TL puts the L-corner at the div's **bottom-right** — the opposite end from where the image corner is. This makes the handle float away from the corner entirely. Each corner must use the borders matching its position name (TL = top+left, TR = top+right, BL = bottom+left, BR = bottom+right).
 
 ### Fixed-Position UI Layout
 
