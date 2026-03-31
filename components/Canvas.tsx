@@ -1126,11 +1126,18 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           });
         } else {
           // Show preview for rect/ellipse/sticky shapes
+          let rawDx = world.x - mode.startWorldX;
+          let rawDy = world.y - mode.startWorldY;
+          if (e.shiftKey && (s.activeTool === "rect" || s.activeTool === "ellipse")) {
+            const side = Math.max(Math.abs(rawDx), Math.abs(rawDy));
+            rawDx = Math.sign(rawDx) * side;
+            rawDy = Math.sign(rawDy) * side;
+          }
           const dragRect = normalizeRect(
             mode.startWorldX,
             mode.startWorldY,
-            world.x - mode.startWorldX,
-            world.y - mode.startWorldY
+            rawDx,
+            rawDy
           );
           const x = dragRect.minX;
           const y = dragRect.minY;
@@ -1333,11 +1340,18 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             },
           });
         } else {
+          let rawDx = endWorld.x - mode.startWorldX;
+          let rawDy = endWorld.y - mode.startWorldY;
+          if (e.shiftKey && (tool === "rect" || tool === "ellipse")) {
+            const side = Math.max(Math.abs(rawDx), Math.abs(rawDy));
+            rawDx = Math.sign(rawDx) * side;
+            rawDy = Math.sign(rawDy) * side;
+          }
           const dragRect = normalizeRect(
             mode.startWorldX,
             mode.startWorldY,
-            endWorld.x - mode.startWorldX,
-            endWorld.y - mode.startWorldY
+            rawDx,
+            rawDy
           );
           dispatch({
             type: "CREATE_NODE",
