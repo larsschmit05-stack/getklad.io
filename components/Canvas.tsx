@@ -1560,13 +1560,21 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
     hoveredNodeId && !selection.nodeIds.has(hoveredNodeId)
       ? doc.nodes[hoveredNodeId] ?? null
       : null;
+
+  const editingNode = editingNodeId ? doc.nodes[editingNodeId] : null;
   const hasPlainTextSelection = selectedNodes.some((node) => node.type === "text");
   const hasShapeTextSelection = selectedNodes.some(
     (node) => node.type === "rect" || node.type === "ellipse"
   );
   const hasStickySelection = selectedNodes.some((node) => node.type === "sticky");
   const hasTextSelection =
-    hasPlainTextSelection || hasShapeTextSelection || hasStickySelection;
+    hasPlainTextSelection ||
+    hasShapeTextSelection ||
+    hasStickySelection ||
+    (editingNode?.type === "text") ||
+    (editingNode?.type === "rect") ||
+    (editingNode?.type === "ellipse") ||
+    (editingNode?.type === "sticky");
   const singleSelectedNode = selectedNodes.length === 1 ? selectedNodes[0] : null;
   const hasImageSelection = singleSelectedNode?.type === "image";
   const imageToolbarPosition =
@@ -2192,15 +2200,31 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 
       <StylePanel
         activeStyle={state.activeStyle}
-        hasSelection={selection.nodeIds.size > 0 && !editingNodeId}
+        hasSelection={selection.nodeIds.size > 0 || !!editingNodeId}
         selectedNodeCount={selection.nodeIds.size}
-        showTextControls={hasTextSelection}
-        showShapeTextControls={hasShapeTextSelection}
+        showTextControls={
+          hasTextSelection ||
+          editingNode?.type === "text" ||
+          editingNode?.type === "rect" ||
+          editingNode?.type === "ellipse" ||
+          editingNode?.type === "sticky"
+        }
+        showShapeTextControls={
+          hasShapeTextSelection ||
+          editingNode?.type === "rect" ||
+          editingNode?.type === "ellipse"
+        }
         showImageControls={hasImageSelection}
-        showStickyControls={hasStickySelection}
+        showStickyControls={
+          hasStickySelection || editingNode?.type === "sticky"
+        }
         onStyleChange={(partial) => {
           setStylePreviewNonce((value) => value + 1);
           dispatch({ type: "SET_ACTIVE_STYLE", style: partial });
+          // Update editing node if one exists
+          if (editingNodeId) {
+            dispatch({ type: "UPDATE_NODE_PROPS", nodeId: editingNodeId, props: partial });
+          }
           // Also update selected nodes
           for (const nodeId of selection.nodeIds) {
             dispatch({ type: "UPDATE_NODE_PROPS", nodeId, props: partial });
