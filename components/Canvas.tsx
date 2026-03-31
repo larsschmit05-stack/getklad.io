@@ -446,7 +446,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 
       const meta = e.metaKey || e.ctrlKey;
 
-      // Printable key on a selected sticky/rect/ellipse → enter edit mode immediately
+      // Printable key on a selected text/sticky/rect/ellipse → enter edit mode immediately
       if (
         e.key.length === 1 &&
         !meta &&
@@ -457,7 +457,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         const selectedNode = stateRef.current.document.nodes[selectedId];
         if (
           selectedNode &&
-          (selectedNode.props.type === "sticky" ||
+          (selectedNode.props.type === "text" ||
+            selectedNode.props.type === "sticky" ||
             selectedNode.props.type === "rect" ||
             selectedNode.props.type === "ellipse")
         ) {
