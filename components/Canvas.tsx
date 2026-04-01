@@ -488,6 +488,67 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         .filter(Boolean) as CanvasNode[];
       const bounds = getSelectionBounds(selectedNodesList);
 
+      // --- Collision-free placement helper ---
+      // Given desired output width/height, find a position that doesn't
+      // overlap any existing node on the canvas. Starts to the right of
+      // the selection, then scans rightward in steps.
+      const PLACEMENT_GAP = 80; // gap between selection and output
+      const allNodesList = Object.values(document.nodes);
+
+      function findFreeArea(
+        outputW: number,
+        outputH: number,
+        anchorY: number,
+      ): { x: number; y: number } {
+        const startX = bounds ? bounds.maxX + PLACEMENT_GAP : 0;
+        const STEP = 100; // scan step size
+        const MAX_ATTEMPTS = 50;
+
+        for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+          const testX = startX + attempt * STEP;
+          const testBounds = {
+            minX: testX,
+            minY: anchorY,
+            maxX: testX + outputW,
+            maxY: anchorY + outputH,
+          };
+
+          const collides = allNodesList.some((node) => {
+            // Skip selected nodes (they may be moved by the AI action)
+            if (selectedIds.has(node.id)) return false;
+            const nb = {
+              minX: node.x,
+              minY: node.y,
+              maxX: node.x + node.width,
+              maxY: node.y + node.height,
+            };
+            return aabbIntersects(testBounds, nb);
+          });
+
+          if (!collides) {
+            return { x: testX, y: anchorY };
+          }
+        }
+
+        // Fallback: place far to the right
+        return { x: startX + MAX_ATTEMPTS * STEP, y: anchorY };
+      }
+
+      // Pan camera to show AI output after placement
+      function panToOutput(outputX: number, outputY: number, outputW: number, outputH: number) {
+        const curCam = stateRef.current.document.camera;
+        const centerX = outputX + outputW / 2;
+        const centerY = outputY + outputH / 2;
+        dispatch({
+          type: "SET_CAMERA",
+          camera: {
+            x: size.width / 2 - centerX * curCam.zoom,
+            y: size.height / 2 - centerY * curCam.zoom,
+            zoom: curCam.zoom,
+          },
+        });
+      }
+
       if (data.type === "groups") {
         // Organize: reposition selected nodes into groups
         const headerNodes: CanvasNode[] = [];
@@ -495,19 +556,30 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           nodeId: string; x: number; y: number; width: number; height: number;
         }> = [];
 
-        let avgX = 0, avgY = 0, totalValid = 0;
-        for (const id of selectedIds) {
-          const node = document.nodes[id];
-          if (!node) continue;
-          avgX += node.x; avgY += node.y; totalValid++;
+        // Pre-calculate total output width and height for collision detection
+        let totalOutputW = 0;
+        let maxGroupH = 0;
+        for (const item of data.items) {
+          const memberIds = (item.nodeIds ?? []).filter((id: string) => document.nodes[id]);
+          if (memberIds.length === 0) continue;
+          const cols = Math.min(memberIds.length, ORG_COLS);
+          const rows = Math.ceil(memberIds.length / ORG_COLS);
+          const gridWidth = cols * ORG_STICKY_SIZE + (cols - 1) * ORG_GAP;
+          const gridHeight = rows * ORG_STICKY_SIZE + (rows - 1) * ORG_GAP;
+          totalOutputW += gridWidth + ORG_GROUP_GAP_X;
+          maxGroupH = Math.max(maxGroupH, gridHeight);
         }
-        if (totalValid > 0) { avgX /= totalValid; avgY /= totalValid; }
+        totalOutputW = Math.max(0, totalOutputW - ORG_GROUP_GAP_X);
+        const totalOutputH = ORG_HEADER_H + ORG_HEADER_GAP + maxGroupH;
 
-        let cursorX = avgX;
-        const baseY = avgY;
+        const anchorY = bounds ? bounds.minY : 0;
+        const freePos = findFreeArea(totalOutputW, totalOutputH, anchorY);
+
+        let cursorX = freePos.x;
+        const baseY = freePos.y;
 
         for (const item of data.items) {
-          const memberIds = (item.nodeIds ?? []).filter((id) => document.nodes[id]);
+          const memberIds = (item.nodeIds ?? []).filter((id: string) => document.nodes[id]);
           if (memberIds.length === 0) continue;
 
           const cols = Math.min(memberIds.length, ORG_COLS);
@@ -542,6 +614,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           const newIds = new Set(headerNodes.map((n) => n.id));
           setFadeInNodeIds(newIds);
           setTimeout(() => setFadeInNodeIds(new Set()), 400);
+          panToOutput(freePos.x, freePos.y, totalOutputW, totalOutputH);
         }
       } else if (data.type === "tasks") {
         // ---------------------------------------------------------------
@@ -560,9 +633,19 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         const COL_WIDTH = Math.max(STICKY_SIZE * 1.2, 240);
         const totalBoardW = NUM_COLS * COL_WIDTH + (NUM_COLS - 1) * COL_GAP;
 
-        // Position board to the right of selection
-        const boardX = bounds ? bounds.maxX + 80 : 0;
-        const boardY = bounds ? bounds.minY : 0;
+        // Pre-count tasks to estimate board height
+        let taskCount = 0;
+        for (const item of data.items) {
+          if (item.sourceNodeId && document.nodes[item.sourceNodeId]) taskCount++;
+        }
+        const todoColumnH = taskCount * STICKY_SIZE + Math.max(taskCount - 1, 0) * STICKY_GAP;
+        const totalBoardH = TITLE_H + TITLE_GAP + HEADER_H + HEADER_TO_CARDS_GAP + Math.max(todoColumnH, STICKY_SIZE);
+
+        // Find collision-free position
+        const anchorY = bounds ? bounds.minY : 0;
+        const boardPos = findFreeArea(totalBoardW, totalBoardH, anchorY);
+        const boardX = boardPos.x;
+        const boardY = boardPos.y;
 
         const frameNodes: CanvasNode[] = [];
         const stickyUpdates: Array<{
@@ -615,7 +698,6 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         }
 
         // Column dividers (between columns)
-        const todoColumnH = taskEntries.length * STICKY_SIZE + Math.max(taskEntries.length - 1, 0) * STICKY_GAP;
         const dividerH = HEADER_H + HEADER_TO_CARDS_GAP + Math.max(todoColumnH, STICKY_SIZE);
         for (let d = 0; d < NUM_COLS - 1; d++) {
           const divX = boardX + (d + 1) * COL_WIDTH + d * COL_GAP + COL_GAP / 2;
@@ -668,14 +750,14 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         const newIds = new Set(frameNodes.map((n) => n.id));
         setFadeInNodeIds(newIds);
         setTimeout(() => setFadeInNodeIds(new Set()), 400);
+        panToOutput(boardX, boardY, totalBoardW, totalBoardH);
 
       } else {
         // questions, analysis → create new stickies
-        const startX = bounds ? bounds.maxX + 80 : 0;
-        const startY = bounds ? bounds.minY : 0;
         const STICKY_SIZE = 200;
         const GAP = 20;
         const HEADER_GAP = 28;
+        const HEADER_H_QA = 44;
 
         const headerLabels: Record<string, string> = {
           questions: "Questions", analysis: "Analysis",
@@ -685,17 +767,27 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           questions: "blue", analysis: "lavender",
         };
 
-        const newNodes: CanvasNode[] = [];
         const items = data.items;
         const cols = items.length <= 2 ? 1 : 2;
+        const rows = Math.ceil(items.length / cols);
         const gridWidth = cols * STICKY_SIZE + (cols - 1) * GAP;
+        const gridHeight = rows * STICKY_SIZE + (rows - 1) * GAP;
+        const outputW = Math.max(gridWidth, 200);
+        const outputH = HEADER_H_QA + HEADER_GAP + gridHeight;
+
+        const anchorY = bounds ? bounds.minY : 0;
+        const freePos = findFreeArea(outputW, outputH, anchorY);
+        const startX = freePos.x;
+        const startY = freePos.y;
+
+        const newNodes: CanvasNode[] = [];
         const headerWidth = Math.max(gridWidth, 200);
         const headerX = startX + (gridWidth - headerWidth) / 2;
 
         // Header
         newNodes.push({
           id: generateId(), type: "text", x: headerX, y: startY,
-          width: headerWidth, height: 44, rotation: 0,
+          width: headerWidth, height: HEADER_H_QA, rotation: 0,
           props: {
             type: "text", text: headerLabels[data.type] ?? "Results",
             fontSize: 32, color: "#1a1814", fontFamily: "sans",
@@ -704,7 +796,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         });
 
         // Item stickies
-        const firstItemY = startY + 44 + HEADER_GAP;
+        const firstItemY = startY + HEADER_H_QA + HEADER_GAP;
         for (let i = 0; i < items.length; i++) {
           const item = items[i];
           const col = i % cols;
@@ -729,6 +821,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         const newIds = new Set(newNodes.map((n) => n.id));
         setFadeInNodeIds(newIds);
         setTimeout(() => setFadeInNodeIds(new Set()), 400);
+        panToOutput(startX, startY, outputW, outputH);
       }
 
       // Show summary in chat
@@ -2460,6 +2553,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
               editingNodeId={editingNodeId}
               stylePreviewNonce={stylePreviewNonce}
               allNodes={doc.nodes}
+              onAiAction={handleAiChat}
+              isAiLoading={aiChatLoading}
             />
           )}
 
@@ -2467,8 +2562,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           {aiChatOpen && (() => {
             const selBounds = getSelectionBounds(selectedNodes);
             if (!selBounds) return null;
-            const CHAT_W_WORLD = 272 / cam.zoom;
-            const CHAT_H_WORLD = 272 / cam.zoom;
+            const CHAT_W_WORLD = 320 / cam.zoom;
+            const CHAT_H_WORLD = 280 / cam.zoom;
             const GAP_WORLD = 32 / cam.zoom;
             const chatX = (selBounds.minX + selBounds.maxX) / 2 - CHAT_W_WORLD / 2;
             const chatY = selBounds.minY - CHAT_H_WORLD - GAP_WORLD;
@@ -2482,8 +2577,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
               >
                 <div
                   style={{
-                    width: 272,
-                    height: 272,
+                    width: 320,
+                    height: 280,
                     transformOrigin: "top left",
                     transform: `scale(${1 / cam.zoom})`,
                   }}
@@ -2611,7 +2706,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
                   const selBounds = getSelectionBounds(selNodes);
                   if (selBounds) {
                     const curCam = stateRef.current.document.camera;
-                    const CHAT_H_WORLD = 272 / curCam.zoom;
+                    const CHAT_H_WORLD = 280 / curCam.zoom;
                     const GAP_WORLD = 32 / curCam.zoom;
                     // Combined area: from chat top to selection bottom
                     const combinedTop = selBounds.minY - CHAT_H_WORLD - GAP_WORLD;

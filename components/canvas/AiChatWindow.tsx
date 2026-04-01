@@ -23,13 +23,14 @@ interface AiChatWindowProps {
 }
 
 // ---------------------------------------------------------------------------
-// Suggestion chips
+// Quick actions
 // ---------------------------------------------------------------------------
 
-const SUGGESTIONS = [
-  "Create a task list",
-  "Challenge my assumptions",
-  "Sort by themes",
+const QUICK_ACTIONS = [
+  { label: "Organize", instruction: "Organize these notes into logical themes with clear labels" },
+  { label: "Questions", instruction: "Ask 4-6 challenging, situation-specific questions about these notes" },
+  { label: "Create Tasks", instruction: "Create a task list from these notes" },
+  { label: "Find Patterns", instruction: "Identify patterns, narrative structure, or missing pieces in these notes" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -74,9 +75,9 @@ export default function AiChatWindow({
     }
   };
 
-  const handleSuggestion = (text: string) => {
+  const handleQuickAction = (instruction: string) => {
     if (isLoading) return;
-    onSend(text);
+    onSend(instruction);
   };
 
   return (
@@ -172,36 +173,32 @@ export default function AiChatWindow({
           gap: "8px",
         }}
       >
-        {/* Empty state with suggestions */}
+        {/* Empty state with quick actions */}
         {messages.length === 0 && !isLoading && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            <p
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div
               style={{
-                fontFamily: "var(--font-dm-sans, sans-serif)",
-                fontSize: "11px",
-                color: "var(--klad-ink3, #7a756e)",
-                lineHeight: 1.5,
-                margin: 0,
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "6px",
               }}
             >
-              What would you like me to do with your notes?
-            </p>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
-              {SUGGESTIONS.map((s) => (
+              {QUICK_ACTIONS.map((action) => (
                 <button
-                  key={s}
-                  onClick={() => handleSuggestion(s)}
+                  key={action.label}
+                  onClick={() => handleQuickAction(action.instruction)}
                   style={{
-                    padding: "4px 8px",
+                    padding: "8px 10px",
                     border: "1px solid var(--klad-paper3, #e3ddd5)",
                     borderRadius: "2px",
                     backgroundColor: "transparent",
                     cursor: "pointer",
                     fontFamily: "var(--font-dm-sans, sans-serif)",
-                    fontSize: "10px",
+                    fontSize: "11px",
+                    fontWeight: 500,
                     color: "var(--klad-ink2, #3d3a35)",
+                    textAlign: "left",
                     transition: "border-color 0.15s, background-color 0.15s",
-                    whiteSpace: "nowrap",
                   }}
                   onMouseEnter={(e) => {
                     (e.currentTarget as HTMLElement).style.borderColor =
@@ -216,7 +213,7 @@ export default function AiChatWindow({
                       "transparent";
                   }}
                 >
-                  {s}
+                  {action.label}
                 </button>
               ))}
             </div>
@@ -337,7 +334,7 @@ export default function AiChatWindow({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask anything about your notes…"
+          placeholder="What else do you need?"
           disabled={isLoading}
           rows={1}
           style={{

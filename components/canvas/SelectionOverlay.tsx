@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Wand2, LayoutGrid, ListChecks } from "lucide-react";
 import type { CanvasNode, Camera } from "@/lib/canvas/types";
 import { getSelectionFrameBounds, getConnectedArrowEndpoints, getNodeCenter } from "@/lib/canvas/geometry";
 import { arrowheadPath } from "./nodes/ArrowNode";
@@ -14,6 +15,8 @@ interface SelectionOverlayProps {
   editingNodeId: string | null;
   stylePreviewNonce?: number;
   allNodes: Record<string, CanvasNode>;
+  onAiAction?: (instruction: string) => void;
+  isAiLoading?: boolean;
 }
 
 const HANDLE_SIZE_SCREEN = 8; // Size in screen pixels
@@ -26,6 +29,8 @@ export default function SelectionOverlay({
   editingNodeId,
   stylePreviewNonce,
   allNodes,
+  onAiAction,
+  isAiLoading,
 }: SelectionOverlayProps) {
   const [previewMode, setPreviewMode] = useState(false);
 
@@ -107,7 +112,12 @@ export default function SelectionOverlay({
 
       {/* Multi-select bounding box — always visible to show selection */}
       {selectedNodes.length > 1 && (
-        <MultiSelectBoundingBox nodes={selectedNodes} camera={camera} />
+        <MultiSelectBoundingBox
+          nodes={selectedNodes}
+          camera={camera}
+          onAiAction={onAiAction}
+          isAiLoading={isAiLoading}
+        />
       )}
 
       {/* Marquee selection rectangle — always visible to show selection area */}
@@ -460,13 +470,40 @@ function getCursorForHandle(handle: string): string {
   }
 }
 
+// ---------------------------------------------------------------------------
+// AI quick-action definitions
+// ---------------------------------------------------------------------------
+
+const AI_QUICK_ACTIONS = [
+  {
+    label: "Organize",
+    instruction: "Organize these notes into logical themes with clear labels",
+    icon: "grid" as const,
+  },
+  {
+    label: "Create Tasks",
+    instruction: "Create a task list from these notes",
+    icon: "tasks" as const,
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Multi-select bounding box + AI button
+// ---------------------------------------------------------------------------
+
 function MultiSelectBoundingBox({
   nodes,
   camera,
+  onAiAction,
+  isAiLoading,
 }: {
   nodes: CanvasNode[];
   camera: Camera;
+  onAiAction?: (instruction: string) => void;
+  isAiLoading?: boolean;
 }) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+
   if (nodes.length === 0) return null;
 
   // Compute union bounding box
@@ -482,22 +519,144 @@ function MultiSelectBoundingBox({
     maxY = Math.max(maxY, node.y + node.height);
   }
 
-  const width = maxX - minX;
-  const height = maxY - minY;
   const z = camera.zoom;
   const strokeWidth = 1.5 / z;
 
+  // AI button dimensions in screen pixels, converted to world space
+  const BTN_SIZE = 28;
+  const BTN_GAP = 6;
+  const btnSizeWorld = BTN_SIZE / z;
+  const btnGapWorld = BTN_GAP / z;
+
+  // Dropdown dimensions in screen pixels
+  const DROPDOWN_W = 160;
+  const DROPDOWN_ITEM_H = 32;
+  const DROPDOWN_PAD = 4;
+  const dropdownH = AI_QUICK_ACTIONS.length * DROPDOWN_ITEM_H + DROPDOWN_PAD * 2;
+
   return (
-    <rect
-      x={minX}
-      y={minY}
-      width={width}
-      height={height}
-      fill="none"
-      stroke="#3b82f6"
-      strokeWidth={strokeWidth}
-      strokeDasharray={`${4 / z} ${2 / z}`}
-      pointerEvents="none"
-    />
+    <g>
+      <rect
+        x={minX}
+        y={minY}
+        width={maxX - minX}
+        height={maxY - minY}
+        fill="none"
+        stroke="#3b82f6"
+        strokeWidth={strokeWidth}
+        strokeDasharray={`${4 / z} ${2 / z}`}
+        pointerEvents="none"
+      />
+
+      {/* AI button at top-right corner of bounding box */}
+      {onAiAction && (
+        <foreignObject
+          x={maxX + btnGapWorld}
+          y={minY}
+          width={(dropdownOpen ? Math.max(DROPDOWN_W, BTN_SIZE) : BTN_SIZE) / z}
+          height={(BTN_SIZE + (dropdownOpen ? BTN_GAP + dropdownH : 0)) / z}
+          style={{ overflow: "visible" }}
+        >
+          <div
+            onPointerDown={(e) => e.stopPropagation()}
+            style={{
+              transformOrigin: "top left",
+              transform: `scale(${1 / z})`,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-start",
+              gap: `${BTN_GAP}px`,
+            }}
+          >
+            {/* Wand button */}
+            <button
+              onClick={() => setDropdownOpen((o) => !o)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: BTN_SIZE,
+                height: BTN_SIZE,
+                borderRadius: "2px",
+                border: "1px solid var(--klad-ink, #1a1814)",
+                boxShadow: "2px 2px 0 var(--klad-ink, #1a1814)",
+                cursor: "pointer",
+                backgroundColor: dropdownOpen
+                  ? "var(--klad-yellow, #f5e642)"
+                  : "var(--klad-paper, #f7f4ef)",
+                color: "var(--klad-ink, #1a1814)",
+                transition: "background-color 0.15s",
+                padding: 0,
+              }}
+            >
+              <Wand2 size={14} />
+            </button>
+
+            {/* Dropdown */}
+            {dropdownOpen && (
+              <div
+                style={{
+                  width: DROPDOWN_W,
+                  backgroundColor: "var(--klad-paper, #f7f4ef)",
+                  border: "1px solid var(--klad-ink, #1a1814)",
+                  boxShadow: "3px 3px 0 var(--klad-ink, #1a1814)",
+                  borderRadius: "2px",
+                  padding: `${DROPDOWN_PAD}px`,
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+              >
+                {AI_QUICK_ACTIONS.map((action) => (
+                  <button
+                    key={action.label}
+                    onClick={() => {
+                      if (isAiLoading) return;
+                      setDropdownOpen(false);
+                      onAiAction(action.instruction);
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      height: DROPDOWN_ITEM_H,
+                      padding: "0 8px",
+                      border: "none",
+                      borderRadius: "2px",
+                      backgroundColor: "transparent",
+                      cursor: isAiLoading ? "default" : "pointer",
+                      opacity: isAiLoading ? 0.5 : 1,
+                      fontFamily: "var(--font-dm-sans, sans-serif)",
+                      fontSize: "12px",
+                      fontWeight: 500,
+                      color: "var(--klad-ink, #1a1814)",
+                      textAlign: "left",
+                      transition: "background-color 0.1s",
+                      width: "100%",
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isAiLoading) {
+                        (e.currentTarget as HTMLElement).style.backgroundColor =
+                          "var(--klad-paper2, #ede9e2)";
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLElement).style.backgroundColor =
+                        "transparent";
+                    }}
+                  >
+                    {action.icon === "grid" ? (
+                      <LayoutGrid size={14} style={{ color: "var(--klad-ink3, #7a756e)", flexShrink: 0 }} />
+                    ) : (
+                      <ListChecks size={14} style={{ color: "var(--klad-ink3, #7a756e)", flexShrink: 0 }} />
+                    )}
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </foreignObject>
+      )}
+    </g>
   );
 }
