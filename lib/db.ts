@@ -187,3 +187,77 @@ export async function getUserPlan(
   if (error) throw new Error(error.message);
   return (data?.plan as "free" | "pro") ?? "free";
 }
+
+// ---------------------------------------------------------------------------
+// AI Usage (monthly call counter)
+// ---------------------------------------------------------------------------
+
+const FREE_AI_LIMIT = 50;
+
+function getCurrentMonthResetDate(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+export type AiUsage = {
+  used: number;
+  limit: number;
+  remaining: number;
+};
+
+export async function getAiUsage(userId: string): Promise<AiUsage> {
+  const supabase = await createServerSupabaseClient();
+  const monthDate = getCurrentMonthResetDate();
+
+  const { data, error } = await supabase
+    .from("ai_usage")
+    .select("calls_count")
+    .eq("user_id", userId)
+    .eq("month_reset_date", monthDate)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+
+  const used = data?.calls_count ?? 0;
+  const plan = await getUserPlan(userId);
+  const limit = plan === "pro" ? Infinity : FREE_AI_LIMIT;
+
+  return {
+    used,
+    limit: plan === "pro" ? -1 : FREE_AI_LIMIT, // -1 signals unlimited
+    remaining: plan === "pro" ? -1 : Math.max(0, FREE_AI_LIMIT - used),
+  };
+}
+
+export async function incrementAiUsage(userId: string): Promise<void> {
+  const supabase = await createServerSupabaseClient();
+  const monthDate = getCurrentMonthResetDate();
+
+  // Try to increment existing row
+  const { data, error: selectError } = await supabase
+    .from("ai_usage")
+    .select("id, calls_count")
+    .eq("user_id", userId)
+    .eq("month_reset_date", monthDate)
+    .maybeSingle();
+
+  if (selectError) throw new Error(selectError.message);
+
+  if (data) {
+    const { error } = await supabase
+      .from("ai_usage")
+      .update({
+        calls_count: data.calls_count + 1,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabase.from("ai_usage").insert({
+      user_id: userId,
+      month_reset_date: monthDate,
+      calls_count: 1,
+    });
+    if (error) throw new Error(error.message);
+  }
+}

@@ -34,6 +34,8 @@ const DIVIDER_AFTER = new Set(["freehand"]);
 export default function Toolbar({ activeTool, onToolChange, onImageClick }: ToolbarProps) {
   return (
     <div
+      onPointerDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
       style={{
         display: "flex",
         flexDirection: "row",

@@ -26,6 +26,8 @@ import {
   type CanvasAction,
 } from "@/lib/canvas/reducer";
 import { generateId } from "@/lib/canvas/types";
+import { serializeForOrganize } from "@/lib/ai/serialize-canvas";
+import type { AiChatResponse } from "@/lib/ai/skills/chat/schema";
 import {
   screenToWorld,
   pointInNode,
@@ -53,6 +55,9 @@ import StylePanel from "./canvas/StylePanel";
 import ImageCropOverlay from "./canvas/ImageCropOverlay";
 import CanvasMenu from "./canvas/CanvasMenu";
 import Toast from "./canvas/Toast";
+import KladAiButton from "./canvas/KladAiButton";
+import AiChatWindow, { type ChatMessage } from "./canvas/AiChatWindow";
+import AiUsageCounter from "./canvas/AiUsageCounter";
 import CanvasContextMenu from "./canvas/ContextMenu";
 import TextNode from "./canvas/nodes/TextNode";
 import StickyNode from "./canvas/nodes/StickyNode";
@@ -65,6 +70,22 @@ import ImageNode from "./canvas/nodes/ImageNode";
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
+
+// AI Organize — layout constants & color map
+const ORGANIZE_COLOR_MAP: Record<string, string> = {
+  blue: "#4a9ebe",
+  amber: "#e8951a",
+  sage: "#5c8c6e",
+  lavender: "#8e6b9e",
+  red: "#c44b3c",
+  navy: "#2c3e50",
+};
+const ORG_STICKY_SIZE = 200; // default sticky w & h
+const ORG_GAP = 24;          // gap between stickies
+const ORG_COLS = 3;           // max stickies per row
+const ORG_HEADER_GAP = 32;   // gap between header and first row
+const ORG_HEADER_H = 44;     // header node height
+const ORG_GROUP_GAP_X = 80;  // horizontal gap between groups
 
 interface CanvasProps {
   projectId: string;
@@ -133,6 +154,11 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   } | null>(null);
   const [arrowHoverNodeId, setArrowHoverNodeId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [aiChatOpen, setAiChatOpen] = useState(false);
+  const [aiChatLoading, setAiChatLoading] = useState(false);
+  const [aiChatMessages, setAiChatMessages] = useState<ChatMessage[]>([]);
+  const [fadeInNodeIds, setFadeInNodeIds] = useState<Set<string>>(new Set());
+  const [usageRefreshKey, setUsageRefreshKey] = useState(0);
   const [canvasContextMenu, setCanvasContextMenu] = useState<{
     x: number;
     y: number;
@@ -144,6 +170,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   } | null>(null);
   const cropModeRef = useRef(cropMode);
   cropModeRef.current = cropMode;
+  const aiChatOpenRef = useRef(aiChatOpen);
+  aiChatOpenRef.current = aiChatOpen;
   const spaceDownRef = useRef(false);
   const clipboardRef = useRef<CanvasNode[]>([]);
   const [hasClipboard, setHasClipboard] = useState(false);
@@ -169,6 +197,61 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 
   // Autosave
   const saveStatus = useAutosave(projectId, state.document);
+
+  // ---------------------------------------------------------------------------
+  // Update active style when selection changes
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    const selectedId = stateRef.current.selection.nodeIds.size === 1
+      ? [...stateRef.current.selection.nodeIds][0]
+      : null;
+    const targetNodeId = stateRef.current.editingNodeId || selectedId;
+
+    if (!targetNodeId) return;
+
+    const targetNode = stateRef.current.document.nodes[targetNodeId];
+    if (!targetNode) return;
+
+    // Extract style from the node's props
+    const newStyle: Partial<ActiveStyle> = {};
+    const props = targetNode.props;
+
+    // Text properties
+    if ('fontSize' in props && typeof props.fontSize === 'number') {
+      newStyle.fontSize = props.fontSize;
+    }
+    if ('fontFamily' in props && props.fontFamily) {
+      newStyle.fontFamily = props.fontFamily;
+    }
+    if ('fontWeight' in props && props.fontWeight) {
+      newStyle.fontWeight = props.fontWeight;
+    }
+    if ('fontStyle' in props && props.fontStyle) {
+      newStyle.fontStyle = props.fontStyle;
+    }
+    if ('textDecoration' in props && props.textDecoration) {
+      newStyle.textDecoration = props.textDecoration;
+    }
+
+    // Stroke/fill properties
+    if ('stroke' in props && props.stroke) {
+      newStyle.color = props.stroke;
+    }
+    if ('strokeWidth' in props && typeof props.strokeWidth === 'number') {
+      newStyle.strokeWidth = props.strokeWidth;
+    }
+    if ('strokeStyle' in props && props.strokeStyle) {
+      newStyle.strokeStyle = props.strokeStyle;
+    }
+    if ('fillStyle' in props && props.fillStyle) {
+      newStyle.fillStyle = props.fillStyle;
+    }
+
+    // Only dispatch if we have changes
+    if (Object.keys(newStyle).length > 0) {
+      dispatch({ type: "SET_ACTIVE_STYLE", style: newStyle });
+    }
+  }, [state.selection.nodeIds, state.editingNodeId]);
 
   // ---------------------------------------------------------------------------
   // Resize observer
@@ -337,6 +420,347 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   }, [showToast]);
 
   // ---------------------------------------------------------------------------
+  // AI Chat handler — unified replacement for organize/questions/tasks
+  // ---------------------------------------------------------------------------
+  const handleAiChat = useCallback(async (instruction: string) => {
+    const { selection, document } = stateRef.current;
+    const selectedIds = selection.nodeIds;
+
+    if (selectedIds.size < 1) {
+      setAiChatMessages((m) => [
+        ...m,
+        { role: "assistant", text: "Select at least 1 note first.", isError: true },
+      ]);
+      return;
+    }
+    if (selectedIds.size > 50) {
+      setAiChatMessages((m) => [
+        ...m,
+        { role: "assistant", text: "Too many notes selected (max 50). Try selecting fewer.", isError: true },
+      ]);
+      return;
+    }
+    if (aiChatLoading) return;
+
+    // Add user message to chat
+    setAiChatMessages((m) => [...m, { role: "user", text: instruction }]);
+    setAiChatLoading(true);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+
+    try {
+      const payload = {
+        ...serializeForOrganize(selectedIds, document),
+        instruction,
+      };
+
+      const res = await fetch("/api/klad/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(
+          (body as { error?: string }).error || `Request failed (${res.status})`
+        );
+      }
+
+      const data: AiChatResponse = await res.json();
+
+      // Handle error responses from AI
+      if (!data.success) {
+        const errMsg = data.error || "I couldn't process that request.";
+        const suggestion = data.suggestion ? `\n\nTry: "${data.suggestion}"` : "";
+        setAiChatMessages((m) => [
+          ...m,
+          { role: "assistant", text: errMsg + suggestion, isError: true },
+        ]);
+        return;
+      }
+
+      // Place results on canvas based on type
+      const selectedNodesList = [...selectedIds]
+        .map((id) => document.nodes[id])
+        .filter(Boolean) as CanvasNode[];
+      const bounds = getSelectionBounds(selectedNodesList);
+
+      if (data.type === "groups") {
+        // Organize: reposition selected nodes into groups
+        const headerNodes: CanvasNode[] = [];
+        const stickyUpdates: Array<{
+          nodeId: string; x: number; y: number; width: number; height: number;
+        }> = [];
+
+        let avgX = 0, avgY = 0, totalValid = 0;
+        for (const id of selectedIds) {
+          const node = document.nodes[id];
+          if (!node) continue;
+          avgX += node.x; avgY += node.y; totalValid++;
+        }
+        if (totalValid > 0) { avgX /= totalValid; avgY /= totalValid; }
+
+        let cursorX = avgX;
+        const baseY = avgY;
+
+        for (const item of data.items) {
+          const memberIds = (item.nodeIds ?? []).filter((id) => document.nodes[id]);
+          if (memberIds.length === 0) continue;
+
+          const cols = Math.min(memberIds.length, ORG_COLS);
+          const gridWidth = cols * ORG_STICKY_SIZE + (cols - 1) * ORG_GAP;
+          const color = ORGANIZE_COLOR_MAP[item.color ?? "blue"] ?? "#1a1814";
+          const headerWidth = Math.max(gridWidth, 200);
+          const headerX = cursorX + (gridWidth - headerWidth) / 2;
+
+          headerNodes.push({
+            id: generateId(), type: "text", x: headerX, y: baseY,
+            width: headerWidth, height: ORG_HEADER_H, rotation: 0,
+            props: {
+              type: "text", text: item.label, fontSize: 32, color,
+              fontFamily: "sans", fontWeight: "bold", fontStyle: "normal", textDecoration: "none",
+            },
+          });
+
+          const gridTopY = baseY + ORG_HEADER_H + ORG_HEADER_GAP;
+          for (let i = 0; i < memberIds.length; i++) {
+            stickyUpdates.push({
+              nodeId: memberIds[i],
+              x: cursorX + (i % ORG_COLS) * (ORG_STICKY_SIZE + ORG_GAP),
+              y: gridTopY + Math.floor(i / ORG_COLS) * (ORG_STICKY_SIZE + ORG_GAP),
+              width: ORG_STICKY_SIZE, height: ORG_STICKY_SIZE,
+            });
+          }
+          cursorX += gridWidth + ORG_GROUP_GAP_X;
+        }
+
+        if (headerNodes.length > 0) {
+          dispatch({ type: "APPLY_ORGANIZE", updates: stickyUpdates, newNodes: headerNodes });
+          const newIds = new Set(headerNodes.map((n) => n.id));
+          setFadeInNodeIds(newIds);
+          setTimeout(() => setFadeInNodeIds(new Set()), 400);
+        }
+      } else if (data.type === "tasks") {
+        // ---------------------------------------------------------------
+        // Kanban task board — moves stickies / converts other nodes into To-do
+        // ---------------------------------------------------------------
+        const COL_GAP = 20;
+        const STICKY_GAP = 16;
+        const HEADER_H = 40;
+        const TITLE_H = 52;
+        const TITLE_GAP = 12;
+        const HEADER_TO_CARDS_GAP = 14;
+        const NUM_COLS = 4;
+        const STICKY_SIZE = 200;
+
+        // Determine column width from sticky size
+        const COL_WIDTH = Math.max(STICKY_SIZE * 1.2, 240);
+        const totalBoardW = NUM_COLS * COL_WIDTH + (NUM_COLS - 1) * COL_GAP;
+
+        // Position board to the right of selection
+        const boardX = bounds ? bounds.maxX + 80 : 0;
+        const boardY = bounds ? bounds.minY : 0;
+
+        const frameNodes: CanvasNode[] = [];
+        const stickyUpdates: Array<{
+          nodeId: string; x: number; y: number; width: number; height: number;
+        }> = [];
+
+        // Collect task items with their source nodes
+        // Stickies get moved; other node types get converted to new stickies
+        const taskEntries: Array<{ nodeId: string; isSticky: boolean; label: string }> = [];
+        for (const item of data.items) {
+          if (!item.sourceNodeId) continue;
+          const srcNode = document.nodes[item.sourceNodeId];
+          if (!srcNode) continue;
+          taskEntries.push({
+            nodeId: item.sourceNodeId,
+            isSticky: srcNode.props.type === "sticky",
+            label: item.label,
+          });
+        }
+
+        // Title: "Tasks"
+        const titleX = boardX;
+        const titleY = boardY;
+        frameNodes.push({
+          id: generateId(), type: "text",
+          x: titleX, y: titleY,
+          width: totalBoardW, height: TITLE_H, rotation: 0,
+          props: {
+            type: "text", text: "Tasks",
+            fontSize: 32, color: "#1a1814", fontFamily: "sans",
+            fontWeight: "bold", fontStyle: "normal", textDecoration: "none",
+          },
+        });
+
+        // Column headers (centered in column)
+        const colNames = ["On hold", "To-do", "In progress", "Done"];
+        const colHeaderY = titleY + TITLE_H + TITLE_GAP;
+        for (let c = 0; c < NUM_COLS; c++) {
+          const colX = boardX + c * (COL_WIDTH + COL_GAP);
+          frameNodes.push({
+            id: generateId(), type: "text",
+            x: colX, y: colHeaderY,
+            width: COL_WIDTH, height: HEADER_H, rotation: 0,
+            props: {
+              type: "text", text: colNames[c],
+              fontSize: 24, color: "#7a756e", fontFamily: "sans",
+              fontWeight: "bold", fontStyle: "normal", textDecoration: "none",
+            },
+          });
+        }
+
+        // Column dividers (between columns)
+        const todoColumnH = taskEntries.length * STICKY_SIZE + Math.max(taskEntries.length - 1, 0) * STICKY_GAP;
+        const dividerH = HEADER_H + HEADER_TO_CARDS_GAP + Math.max(todoColumnH, STICKY_SIZE);
+        for (let d = 0; d < NUM_COLS - 1; d++) {
+          const divX = boardX + (d + 1) * COL_WIDTH + d * COL_GAP + COL_GAP / 2;
+          frameNodes.push({
+            id: generateId(), type: "rect",
+            x: divX, y: colHeaderY,
+            width: 1, height: dividerH, rotation: 0,
+            props: {
+              type: "rect", fill: "transparent", stroke: "#e3ddd5",
+              strokeWidth: 1, strokeStyle: "solid", fillStyle: "none",
+            },
+          });
+        }
+
+        // Place tasks in To-do column (index 1)
+        const cardStartY = colHeaderY + HEADER_H + HEADER_TO_CARDS_GAP;
+        const todoColCenterX = boardX + 1 * (COL_WIDTH + COL_GAP) + COL_WIDTH / 2;
+
+        for (let i = 0; i < taskEntries.length; i++) {
+          const entry = taskEntries[i];
+          const cardY = cardStartY + i * (STICKY_SIZE + STICKY_GAP);
+
+          if (entry.isSticky) {
+            // Move existing sticky into To-do column (centered)
+            const node = document.nodes[entry.nodeId];
+            if (node) {
+              stickyUpdates.push({
+                nodeId: entry.nodeId,
+                x: todoColCenterX - node.width / 2,
+                y: cardY,
+                width: node.width,
+                height: node.height,
+              });
+            }
+          } else {
+            // Convert non-sticky node to a new sticky in the board
+            frameNodes.push({
+              id: generateId(), type: "sticky",
+              x: todoColCenterX - STICKY_SIZE / 2,
+              y: cardY,
+              width: STICKY_SIZE, height: STICKY_SIZE, rotation: 0,
+              props: {
+                type: "sticky", text: entry.label, color: "yellow",
+              },
+            });
+          }
+        }
+
+        dispatch({ type: "APPLY_ORGANIZE", updates: stickyUpdates, newNodes: frameNodes });
+        const newIds = new Set(frameNodes.map((n) => n.id));
+        setFadeInNodeIds(newIds);
+        setTimeout(() => setFadeInNodeIds(new Set()), 400);
+
+      } else {
+        // questions, analysis → create new stickies
+        const startX = bounds ? bounds.maxX + 80 : 0;
+        const startY = bounds ? bounds.minY : 0;
+        const STICKY_SIZE = 200;
+        const GAP = 20;
+        const HEADER_GAP = 28;
+
+        const headerLabels: Record<string, string> = {
+          questions: "Questions", analysis: "Analysis",
+        };
+
+        const defaultColor: Record<string, string> = {
+          questions: "blue", analysis: "lavender",
+        };
+
+        const newNodes: CanvasNode[] = [];
+        const items = data.items;
+        const cols = items.length <= 2 ? 1 : 2;
+        const gridWidth = cols * STICKY_SIZE + (cols - 1) * GAP;
+        const headerWidth = Math.max(gridWidth, 200);
+        const headerX = startX + (gridWidth - headerWidth) / 2;
+
+        // Header
+        newNodes.push({
+          id: generateId(), type: "text", x: headerX, y: startY,
+          width: headerWidth, height: 44, rotation: 0,
+          props: {
+            type: "text", text: headerLabels[data.type] ?? "Results",
+            fontSize: 32, color: "#1a1814", fontFamily: "sans",
+            fontWeight: "bold", fontStyle: "normal", textDecoration: "none",
+          },
+        });
+
+        // Item stickies
+        const firstItemY = startY + 44 + HEADER_GAP;
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+
+          let text = item.label;
+          if (item.description) text += `\n\n${item.description}`;
+
+          newNodes.push({
+            id: generateId(), type: "sticky",
+            x: startX + col * (STICKY_SIZE + GAP),
+            y: firstItemY + row * (STICKY_SIZE + GAP),
+            width: STICKY_SIZE, height: STICKY_SIZE, rotation: 0,
+            props: {
+              type: "sticky", text,
+              color: item.color ?? defaultColor[data.type] ?? "blue",
+            },
+          });
+        }
+
+        dispatch({ type: "PASTE_NODES", nodes: newNodes });
+        const newIds = new Set(newNodes.map((n) => n.id));
+        setFadeInNodeIds(newIds);
+        setTimeout(() => setFadeInNodeIds(new Set()), 400);
+      }
+
+      // Show summary in chat
+      setAiChatMessages((m) => [
+        ...m,
+        { role: "assistant", text: data.summary || `Created ${data.items.length} items`, isSuccess: true },
+      ]);
+      setUsageRefreshKey((k) => k + 1);
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setAiChatMessages((m) => [
+          ...m,
+          { role: "assistant", text: "Request timed out. Try again?", isError: true },
+        ]);
+      } else if (err instanceof Error) {
+        setAiChatMessages((m) => [
+          ...m,
+          { role: "assistant", text: err.message, isError: true },
+        ]);
+      } else {
+        setAiChatMessages((m) => [
+          ...m,
+          { role: "assistant", text: "Something went wrong", isError: true },
+        ]);
+      }
+    } finally {
+      clearTimeout(timeout);
+      setAiChatLoading(false);
+    }
+  }, [showToast, aiChatLoading]);
+
+  // ---------------------------------------------------------------------------
   // Export callbacks
   // ---------------------------------------------------------------------------
   const handleExportSvg = useCallback(() => {
@@ -432,6 +856,15 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === " ") {
         setSpaceDown(true);
+        return;
+      }
+
+      // Don't capture keyboard shortcuts while AI chat is open
+      if (aiChatOpenRef.current) {
+        if (e.key === "Escape") {
+          setAiChatOpen(false);
+          e.preventDefault();
+        }
         return;
       }
 
@@ -622,6 +1055,13 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
     (e: ReactPointerEvent<HTMLDivElement>) => {
       // Close context menu on any pointer down
       setCanvasContextMenu(null);
+
+      // If AI chat is open, close it and consume the click
+      // (preserve the current selection so user can re-open)
+      if (aiChatOpenRef.current) {
+        setAiChatOpen(false);
+        return;
+      }
 
       // Block all canvas interactions while crop mode is active
       if (cropModeRef.current) return;
@@ -1382,6 +1822,10 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      const s = stateRef.current;
+      const cam = s.document.camera;
+      const world = screenToWorld(e.clientX, e.clientY, cam);
+
       const hit = hitTestNode(e.clientX, e.clientY);
       if (
         hit &&
@@ -1391,6 +1835,21 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           hit.type === "ellipse")
       ) {
         dispatch({ type: "SET_EDITING", nodeId: hit.id });
+      } else {
+        // Double-click on empty space: create a sticky at that position
+        const stickySize = { w: 200, h: 200 };
+        const x = world.x - stickySize.w / 2;
+        const y = world.y - stickySize.h / 2;
+
+        dispatch({
+          type: "CREATE_NODE",
+          nodeType: "sticky",
+          x,
+          y,
+          width: stickySize.w,
+          height: stickySize.h,
+          props: defaultPropsForTool("sticky", s.activeStyle),
+        });
       }
     },
     [hitTestNode]
@@ -1718,12 +2177,30 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             if (!node) return null;
             const isSelected = selection.nodeIds.has(id);
             const isEditing = editingNodeId === id;
+            const isFadingIn = fadeInNodeIds.has(id);
+
+            // Wrap node in fade-in group if it was just created by AI
+            const wrapFadeIn = (el: React.ReactElement) =>
+              isFadingIn ? (
+                <g key={id} opacity={0}>
+                  <animate
+                    attributeName="opacity"
+                    from="0"
+                    to="1"
+                    dur="0.35s"
+                    fill="freeze"
+                  />
+                  {el}
+                </g>
+              ) : (
+                el
+              );
 
             switch (node.type) {
               case "text":
-                return (
+                return wrapFadeIn(
                   <TextNode
-                    key={id}
+                    key={isFadingIn ? `${id}-fade` : id}
                     node={node}
                     isSelected={isSelected}
                     isEditing={isEditing}
@@ -1985,6 +2462,43 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
               allNodes={doc.nodes}
             />
           )}
+
+          {/* AI Chat — rendered in world space so it moves with the canvas */}
+          {aiChatOpen && (() => {
+            const selBounds = getSelectionBounds(selectedNodes);
+            if (!selBounds) return null;
+            const CHAT_W_WORLD = 272 / cam.zoom;
+            const CHAT_H_WORLD = 272 / cam.zoom;
+            const GAP_WORLD = 32 / cam.zoom;
+            const chatX = (selBounds.minX + selBounds.maxX) / 2 - CHAT_W_WORLD / 2;
+            const chatY = selBounds.minY - CHAT_H_WORLD - GAP_WORLD;
+            return (
+              <foreignObject
+                x={chatX}
+                y={chatY}
+                width={CHAT_W_WORLD}
+                height={CHAT_H_WORLD}
+                style={{ overflow: "visible" }}
+              >
+                <div
+                  style={{
+                    width: 272,
+                    height: 272,
+                    transformOrigin: "top left",
+                    transform: `scale(${1 / cam.zoom})`,
+                  }}
+                >
+                  <AiChatWindow
+                    isLoading={aiChatLoading}
+                    messages={aiChatMessages}
+                    selectedCount={selection.nodeIds.size}
+                    onSend={handleAiChat}
+                    onClose={() => setAiChatOpen(false)}
+                  />
+                </div>
+              </foreignObject>
+            );
+          })()}
         </g>
       </svg>
 
@@ -2070,18 +2584,57 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             if (ids.length > 0) dispatch({ type: "DUPLICATE_NODES", nodeIds: ids });
           }}
         />
-        <Toolbar
-          activeTool={activeTool}
-          onToolChange={handleToolChange}
-          onImageClick={() => {
-            imageClickPosRef.current = screenToWorld(
-              size.width / 2,
-              size.height / 2,
-              cam
-            );
-            imageInputRef.current?.click();
-          }}
-        />
+        <div style={{ display: "flex", flexDirection: "row", gap: "8px", alignItems: "center" }}>
+          <Toolbar
+            activeTool={activeTool}
+            onToolChange={handleToolChange}
+            onImageClick={() => {
+              imageClickPosRef.current = screenToWorld(
+                size.width / 2,
+                size.height / 2,
+                cam
+              );
+              imageInputRef.current?.click();
+            }}
+          />
+          <div data-ai-button>
+            <KladAiButton
+              disabled={selection.nodeIds.size < 1}
+              isLoading={aiChatLoading}
+              isOpen={aiChatOpen}
+              onClick={() => {
+                if (!aiChatOpen) {
+                  // Opening: pan camera to center selection + chat on screen
+                  const selNodes = [...stateRef.current.selection.nodeIds]
+                    .map((id) => stateRef.current.document.nodes[id])
+                    .filter(Boolean) as CanvasNode[];
+                  const selBounds = getSelectionBounds(selNodes);
+                  if (selBounds) {
+                    const curCam = stateRef.current.document.camera;
+                    const CHAT_H_WORLD = 272 / curCam.zoom;
+                    const GAP_WORLD = 32 / curCam.zoom;
+                    // Combined area: from chat top to selection bottom
+                    const combinedTop = selBounds.minY - CHAT_H_WORLD - GAP_WORLD;
+                    const combinedBottom = selBounds.maxY;
+                    const combinedCenterX = (selBounds.minX + selBounds.maxX) / 2;
+                    const combinedCenterY = (combinedTop + combinedBottom) / 2;
+                    dispatch({
+                      type: "SET_CAMERA",
+                      camera: {
+                        x: size.width / 2 - combinedCenterX * curCam.zoom,
+                        y: size.height / 2 - combinedCenterY * curCam.zoom,
+                        zoom: curCam.zoom,
+                      },
+                    });
+                  }
+                  setAiChatMessages([]);
+                }
+                setAiChatOpen((o) => !o);
+              }}
+            />
+          </div>
+          <AiUsageCounter refreshKey={usageRefreshKey} />
+        </div>
       </div>
       <ZoomControls
         zoom={cam.zoom}

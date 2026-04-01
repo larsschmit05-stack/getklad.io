@@ -25,6 +25,7 @@ export default function ActionBar({
   return (
     <div
       onPointerDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
       style={{
         display: "inline-flex",
         alignItems: "center",

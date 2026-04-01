@@ -68,6 +68,11 @@ export type CanvasAction =
   | { type: "ALIGN_NODES"; nodeIds: string[]; alignment: AlignmentType }
   | { type: "DUPLICATE_NODES"; nodeIds: string[] }
   | { type: "PASTE_NODES"; nodes: CanvasNode[] }
+  | {
+      type: "APPLY_ORGANIZE";
+      updates: Array<{ nodeId: string; x: number; y: number; width: number; height: number }>;
+      newNodes: CanvasNode[];
+    }
   | { type: "BRING_TO_FRONT"; nodeIds: string[] }
   | { type: "BRING_FORWARD"; nodeIds: string[] }
   | { type: "SEND_BACKWARD"; nodeIds: string[] }
@@ -558,6 +563,41 @@ export function canvasReducer(
         nodeOrder.push(n.id);
         newIds.push(n.id);
       }
+      return {
+        ...withUndo,
+        document: { ...withUndo.document, nodes, nodeOrder },
+        selection: { nodeIds: new Set(newIds), marquee: null },
+      };
+    }
+
+    case "APPLY_ORGANIZE": {
+      if (action.updates.length === 0 && action.newNodes.length === 0)
+        return state;
+      const withUndo = pushUndo(state);
+      const nodes = { ...withUndo.document.nodes };
+      const nodeOrder = [...withUndo.document.nodeOrder];
+
+      // Update existing nodes (resize + reposition stickies)
+      for (const u of action.updates) {
+        const existing = nodes[u.nodeId];
+        if (!existing) continue;
+        nodes[u.nodeId] = {
+          ...existing,
+          x: u.x,
+          y: u.y,
+          width: u.width,
+          height: u.height,
+        };
+      }
+
+      // Add new nodes (header labels)
+      const newIds: string[] = [];
+      for (const n of action.newNodes) {
+        nodes[n.id] = n;
+        nodeOrder.push(n.id);
+        newIds.push(n.id);
+      }
+
       return {
         ...withUndo,
         document: { ...withUndo.document, nodes, nodeOrder },

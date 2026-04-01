@@ -40,6 +40,10 @@ function StickyNode({
 
     textarea.style.height = "0px";
     textarea.style.height = `${Math.min(textarea.scrollHeight, availableHeight)}px`;
+
+    // Ensure cursor is at the end of the text
+    textarea.selectionStart = textarea.value.length;
+    textarea.selectionEnd = textarea.value.length;
   }, [isEditing, node.height, stickyText, stickyType]);
 
   if (stickyType !== "sticky") return null;
