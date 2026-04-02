@@ -100,7 +100,7 @@ type DragMode =
   | { kind: "none" }
   | { kind: "pan"; startX: number; startY: number; startCamX: number; startCamY: number }
   | { kind: "move"; startX: number; startY: number; nodeIds: string[] }
-  | { kind: "marquee"; startWorldX: number; startWorldY: number }
+  | { kind: "marquee"; startWorldX: number; startWorldY: number; metaKey: boolean }
   | { kind: "create-text"; worldX: number; worldY: number }
   | {
       kind: "resize";
@@ -557,6 +557,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         }> = [];
 
         // Pre-calculate total output width and height for collision detection
+        // Estimate header text width: ~18px per char at 32px bold sans-serif
+        const EST_CHAR_W = 18;
         let totalOutputW = 0;
         let maxGroupH = 0;
         for (const item of data.items) {
@@ -566,7 +568,9 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           const rows = Math.ceil(memberIds.length / ORG_COLS);
           const gridWidth = cols * ORG_STICKY_SIZE + (cols - 1) * ORG_GAP;
           const gridHeight = rows * ORG_STICKY_SIZE + (rows - 1) * ORG_GAP;
-          totalOutputW += gridWidth + ORG_GROUP_GAP_X;
+          const estimatedHeaderW = item.label.length * EST_CHAR_W;
+          const colWidth = Math.max(gridWidth, estimatedHeaderW);
+          totalOutputW += colWidth + ORG_GROUP_GAP_X;
           maxGroupH = Math.max(maxGroupH, gridHeight);
         }
         totalOutputW = Math.max(0, totalOutputW - ORG_GROUP_GAP_X);
@@ -585,8 +589,10 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           const cols = Math.min(memberIds.length, ORG_COLS);
           const gridWidth = cols * ORG_STICKY_SIZE + (cols - 1) * ORG_GAP;
           const color = ORGANIZE_COLOR_MAP[item.color ?? "blue"] ?? "#1a1814";
-          const headerWidth = Math.max(gridWidth, 200);
-          const headerX = cursorX + (gridWidth - headerWidth) / 2;
+          const estimatedHeaderW = item.label.length * EST_CHAR_W;
+          const headerWidth = Math.max(gridWidth, estimatedHeaderW);
+          const colWidth = Math.max(gridWidth, estimatedHeaderW);
+          const headerX = cursorX + (colWidth - headerWidth) / 2;
 
           headerNodes.push({
             id: generateId(), type: "text", x: headerX, y: baseY,
@@ -598,15 +604,16 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           });
 
           const gridTopY = baseY + ORG_HEADER_H + ORG_HEADER_GAP;
+          const gridOffsetX = cursorX + (colWidth - gridWidth) / 2;
           for (let i = 0; i < memberIds.length; i++) {
             stickyUpdates.push({
               nodeId: memberIds[i],
-              x: cursorX + (i % ORG_COLS) * (ORG_STICKY_SIZE + ORG_GAP),
+              x: gridOffsetX + (i % ORG_COLS) * (ORG_STICKY_SIZE + ORG_GAP),
               y: gridTopY + Math.floor(i / ORG_COLS) * (ORG_STICKY_SIZE + ORG_GAP),
               width: ORG_STICKY_SIZE, height: ORG_STICKY_SIZE,
             });
           }
-          cursorX += gridWidth + ORG_GROUP_GAP_X;
+          cursorX += colWidth + ORG_GROUP_GAP_X;
         }
 
         if (headerNodes.length > 0) {
@@ -1301,14 +1308,34 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         const isAlreadySelected = s.selection.nodeIds.has(hitNode.id);
         const metaKey = e.metaKey || e.ctrlKey;
 
-        if (!isAlreadySelected && !metaKey) {
-          dispatch({ type: "SELECT_NODES", nodeIds: [hitNode.id] });
-        } else if (metaKey) {
+        // Calculate the new selection state and nodes to move
+        let nodesToMove: string[];
+
+        if (metaKey) {
+          // Cmd/Ctrl + click: toggle selection
+          const nextSelection = new Set(s.selection.nodeIds);
+          if (isAlreadySelected) {
+            // Remove from selection
+            nextSelection.delete(hitNode.id);
+          } else {
+            // Add to selection
+            nextSelection.add(hitNode.id);
+          }
+          nodesToMove = Array.from(nextSelection);
           dispatch({
             type: "SELECT_NODES",
-            nodeIds: [hitNode.id],
-            append: true,
+            nodeIds: Array.from(nextSelection),
           });
+        } else {
+          // Click without modifier: select only this node
+          if (isAlreadySelected) {
+            // Already selected, keep current selection for moving
+            nodesToMove = Array.from(s.selection.nodeIds);
+          } else {
+            // New selection
+            nodesToMove = [hitNode.id];
+            dispatch({ type: "SELECT_NODES", nodeIds: [hitNode.id] });
+          }
         }
 
         // Connected arrows can't be moved — they're anchored to their endpoint nodes
@@ -1325,20 +1352,22 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           kind: "move",
           startX: e.clientX,
           startY: e.clientY,
-          nodeIds: isAlreadySelected
-            ? [...s.selection.nodeIds]
-            : [hitNode.id],
+          nodeIds: nodesToMove,
         };
         (e.target as HTMLElement).setPointerCapture(e.pointerId);
         return;
       }
 
       // Clicked empty area — start marquee select
-      dispatch({ type: "CLEAR_SELECTION" });
+      const metaKey = e.metaKey || e.ctrlKey;
+      if (!metaKey) {
+        dispatch({ type: "CLEAR_SELECTION" });
+      }
       interaction.current.dragMode = {
         kind: "marquee",
         startWorldX: world.x,
         startWorldY: world.y,
+        metaKey,
       };
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
@@ -1595,7 +1624,13 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           const node = s.document.nodes[id];
           return node && aabbIntersects(marqueeBounds, getNodeBounds(node));
         });
-        dispatch({ type: "SELECT_NODES", nodeIds: hitIds });
+
+        // If Cmd/Ctrl is held, append to existing selection; otherwise replace
+        dispatch({
+          type: "SELECT_NODES",
+          nodeIds: hitIds,
+          append: mode.metaKey,
+        });
         return;
       }
 

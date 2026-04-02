@@ -7,6 +7,17 @@ import { getSelectionFrameBounds, getConnectedArrowEndpoints, getNodeCenter } fr
 import { arrowheadPath } from "./nodes/ArrowNode";
 import { smoothPath } from "./nodes/FreehandNode";
 
+// CSS for loading animation
+const styles = `
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  .ai-wand-loading {
+    animation: spin 1s linear infinite;
+  }
+`;
+
 interface SelectionOverlayProps {
   selectedNodes: CanvasNode[];
   hoveredNode: CanvasNode | null;
@@ -33,6 +44,14 @@ export default function SelectionOverlay({
   isAiLoading,
 }: SelectionOverlayProps) {
   const [previewMode, setPreviewMode] = useState(false);
+
+  // Inject styles for animation
+  useEffect(() => {
+    const styleEl = document.createElement("style");
+    styleEl.textContent = styles;
+    document.head.appendChild(styleEl);
+    return () => styleEl.remove();
+  }, []);
 
   // Briefly hide selection chrome when entering text edit or changing styles.
   useEffect(() => {
@@ -571,6 +590,7 @@ function MultiSelectBoundingBox({
             {/* Wand button */}
             <button
               onClick={() => setDropdownOpen((o) => !o)}
+              disabled={isAiLoading}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -580,16 +600,21 @@ function MultiSelectBoundingBox({
                 borderRadius: "2px",
                 border: "1px solid var(--klad-ink, #1a1814)",
                 boxShadow: "2px 2px 0 var(--klad-ink, #1a1814)",
-                cursor: "pointer",
+                cursor: isAiLoading ? "not-allowed" : "pointer",
                 backgroundColor: dropdownOpen
                   ? "var(--klad-yellow, #f5e642)"
                   : "var(--klad-paper, #f7f4ef)",
                 color: "var(--klad-ink, #1a1814)",
                 transition: "background-color 0.15s",
                 padding: 0,
+                opacity: isAiLoading ? 0.8 : 1,
               }}
             >
-              <Wand2 size={14} />
+              <Wand2
+                size={14}
+                className={isAiLoading ? "ai-wand-loading" : ""}
+                style={{ display: "block" }}
+              />
             </button>
 
             {/* Dropdown */}
