@@ -15,6 +15,7 @@ interface TextNodeProps {
   node: CanvasNode;
   isSelected: boolean;
   isEditing: boolean;
+  isResizing?: boolean;
   onTextChange?: (text: string) => void;
   onSizeChange?: (width: number, height: number) => void;
   onBlur?: () => void;
@@ -24,6 +25,7 @@ function TextNode({
   node,
   isSelected,
   isEditing,
+  isResizing,
   onTextChange,
   onSizeChange,
   onBlur,
@@ -40,7 +42,7 @@ function TextNode({
   const textDecoration = textType === "text" ? node.props.textDecoration : "none";
 
   useLayoutEffect(() => {
-    if (textType !== "text" || !isEditing) return;
+    if (textType !== "text" || !isEditing || isResizing) return;
     const { width: measuredWidth, height: measuredHeight } = measureTextNodeSize(
       node.props
     );
@@ -66,8 +68,12 @@ function TextNode({
   ]);
 
   // Resize when style props change while not editing (e.g., font size from StylePanel)
+  // NOTE: node.width/node.height are intentionally NOT in the dependency array.
+  // Including them creates a feedback loop during manual resize: resize dispatch →
+  // width changes → effect fires → measureTextNodeSize returns intrinsic width →
+  // onSizeChange snaps it back → flicker.
   useLayoutEffect(() => {
-    if (textType !== "text" || isEditing) return;
+    if (textType !== "text" || isEditing || isResizing) return;
     if (!text.trim()) return;
     const { width: measuredWidth, height: measuredHeight } = measureTextNodeSize(node.props);
     if (
@@ -76,7 +82,7 @@ function TextNode({
     ) {
       onSizeChange?.(measuredWidth, measuredHeight);
     }
-  }, [fontSize, fontFamily, fontStyle, fontWeight, text, node.props, onSizeChange, textType, isEditing, node.width, node.height]);
+  }, [fontSize, fontFamily, fontStyle, fontWeight, text, node.props, onSizeChange, textType, isEditing, isResizing, node.width, node.height]);
 
   useLayoutEffect(() => {
     if (!isEditing || !editorRef.current) return;
@@ -182,7 +188,8 @@ function areTextNodePropsEqual(prev: TextNodeProps, next: TextNodeProps) {
   return (
     prev.node === next.node &&
     prev.isSelected === next.isSelected &&
-    prev.isEditing === next.isEditing
+    prev.isEditing === next.isEditing &&
+    prev.isResizing === next.isResizing
   );
 }
 

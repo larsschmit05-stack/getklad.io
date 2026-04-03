@@ -18,6 +18,7 @@ import type {
   NodeProps,
   ActiveStyle,
   ImageProps,
+  TextProps,
 } from "@/lib/canvas/types";
 import { cropImagePixels } from "@/lib/canvas/cropImage";
 import {
@@ -759,15 +760,86 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         setTimeout(() => setFadeInNodeIds(new Set()), 400);
         panToOutput(boardX, boardY, totalBoardW, totalBoardH);
 
+      } else if (data.type === "summary") {
+        // summary → header text + word-wrapped body text
+        const SUMMARY_W = 400;
+        const HEADER_H = 44;
+        const HEADER_GAP = 16;
+        const BODY_FONT_SIZE = 16;
+        const BODY_LINE_H = 1.35; // matches TEXT_LINE_HEIGHT
+        const BODY_PAD_X = 12; // matches TEXT_BOX_PADDING_X
+        const BODY_PAD_Y = 10; // matches TEXT_BOX_PADDING_Y
+
+        const rawText = data.items[0]?.description || data.items[0]?.label || data.summary || "";
+
+        // Word-wrap: text nodes use whiteSpace:"pre", so insert \n at word boundaries
+        const maxLineChars = Math.floor((SUMMARY_W - BODY_PAD_X * 2) / (BODY_FONT_SIZE * 0.52));
+        const words = rawText.split(" ");
+        const lines: string[] = [];
+        let currentLine = "";
+        for (const word of words) {
+          const test = currentLine ? `${currentLine} ${word}` : word;
+          if (test.length > maxLineChars && currentLine) {
+            lines.push(currentLine);
+            currentLine = word;
+          } else {
+            currentLine = test;
+          }
+        }
+        if (currentLine) lines.push(currentLine);
+        const bodyText = lines.join("\n");
+
+        const bodyH = Math.max(40, lines.length * BODY_FONT_SIZE * BODY_LINE_H + BODY_PAD_Y * 2);
+        const outputW = SUMMARY_W;
+        const outputH = HEADER_H + HEADER_GAP + bodyH;
+
+        const anchorY = bounds ? bounds.minY : 0;
+        const freePos = findFreeArea(outputW, outputH, anchorY);
+        const startX = freePos.x;
+        const startY = freePos.y;
+
+        const newNodes: CanvasNode[] = [];
+
+        // Header
+        newNodes.push({
+          id: generateId(), type: "text", x: startX, y: startY,
+          width: SUMMARY_W, height: HEADER_H, rotation: 0,
+          props: {
+            type: "text", text: "Summary",
+            fontSize: 32, color: "#1a1814", fontFamily: "sans",
+            fontWeight: "bold", fontStyle: "normal", textDecoration: "none",
+          },
+        });
+
+        // Body
+        newNodes.push({
+          id: generateId(), type: "text", x: startX, y: startY + HEADER_H + HEADER_GAP,
+          width: SUMMARY_W, height: bodyH, rotation: 0,
+          props: {
+            type: "text", text: bodyText,
+            fontSize: BODY_FONT_SIZE, color: "#3d3a35", fontFamily: "sans",
+            fontWeight: "normal", fontStyle: "normal", textDecoration: "none",
+          },
+        });
+
+        dispatch({ type: "PASTE_NODES", nodes: newNodes });
+        const newIds = new Set(newNodes.map((n) => n.id));
+        setFadeInNodeIds(newIds);
+        setTimeout(() => setFadeInNodeIds(new Set()), 400);
+        panToOutput(startX, startY, outputW, outputH);
+
       } else {
         // questions, analysis → create new stickies
-        const STICKY_SIZE = 200;
+        const STICKY_W = 200;
         const GAP = 20;
         const HEADER_GAP = 28;
         const HEADER_H_QA = 44;
+        const STICKY_PADDING = 24; // 12px top + 12px bottom
+        const STICKY_FONT_SIZE = 14;
+        const STICKY_LINE_HEIGHT = 1.5;
 
         const headerLabels: Record<string, string> = {
-          questions: "Questions", analysis: "Analysis",
+          questions: "Critical Questions", analysis: "Analysis",
         };
 
         const defaultColor: Record<string, string> = {
@@ -776,10 +848,61 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 
         const items = data.items;
         const cols = items.length <= 2 ? 1 : 2;
+
+        // Estimate sticky height based on text content
+        // Inner width = STICKY_W - 24px padding; avg char width ~0.58em at 14px
+        const innerW = STICKY_W - 24;
+        const charsPerLine = Math.floor(innerW / (STICKY_FONT_SIZE * 0.58));
+        const lineH = STICKY_FONT_SIZE * STICKY_LINE_HEIGHT;
+        const estimateHeight = (text: string) => {
+          let lines = 0;
+          for (const paragraph of text.split("\n")) {
+            if (paragraph.length === 0) { lines += 1; continue; }
+            // Word-wrap estimation: split into words and simulate wrapping
+            const words = paragraph.split(/\s+/);
+            let lineLen = 0;
+            let pLines = 1;
+            for (const word of words) {
+              if (lineLen > 0 && lineLen + 1 + word.length > charsPerLine) {
+                pLines++;
+                lineLen = word.length;
+              } else {
+                lineLen += (lineLen > 0 ? 1 : 0) + word.length;
+              }
+            }
+            lines += pLines;
+          }
+          const contentH = lines * lineH;
+          return Math.max(STICKY_W, Math.ceil(contentH + STICKY_PADDING));
+        };
+
+        // Build item texts and estimate heights
+        const itemTexts: string[] = [];
+        const itemHeights: number[] = [];
+        for (const item of items) {
+          let text = item.label;
+          if (item.description) text += `\n\n${item.description}`;
+          itemTexts.push(text);
+          itemHeights.push(estimateHeight(text));
+        }
+
+        // Compute row heights (max of items in each row)
         const rows = Math.ceil(items.length / cols);
-        const gridWidth = cols * STICKY_SIZE + (cols - 1) * GAP;
-        const gridHeight = rows * STICKY_SIZE + (rows - 1) * GAP;
-        const outputW = Math.max(gridWidth, 200);
+        const rowHeights: number[] = [];
+        for (let r = 0; r < rows; r++) {
+          let maxH = STICKY_W;
+          for (let c = 0; c < cols; c++) {
+            const idx = r * cols + c;
+            if (idx < items.length) maxH = Math.max(maxH, itemHeights[idx]);
+          }
+          rowHeights.push(maxH);
+        }
+
+        const gridWidth = cols * STICKY_W + (cols - 1) * GAP;
+        const gridHeight = rowHeights.reduce((s, h) => s + h, 0) + (rows - 1) * GAP;
+        const headerLabel = headerLabels[data.type] ?? "Results";
+        const estHeaderW = headerLabel.length * 18;
+        const outputW = Math.max(gridWidth, estHeaderW, 200);
         const outputH = HEADER_H_QA + HEADER_GAP + gridHeight;
 
         const anchorY = bounds ? bounds.minY : 0;
@@ -788,37 +911,39 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         const startY = freePos.y;
 
         const newNodes: CanvasNode[] = [];
-        const headerWidth = Math.max(gridWidth, 200);
-        const headerX = startX + (gridWidth - headerWidth) / 2;
+        const headerWidth = outputW;
+        const headerX = startX;
 
         // Header
         newNodes.push({
           id: generateId(), type: "text", x: headerX, y: startY,
           width: headerWidth, height: HEADER_H_QA, rotation: 0,
           props: {
-            type: "text", text: headerLabels[data.type] ?? "Results",
+            type: "text", text: headerLabel,
             fontSize: 32, color: "#1a1814", fontFamily: "sans",
             fontWeight: "bold", fontStyle: "normal", textDecoration: "none",
           },
         });
 
-        // Item stickies
+        // Item stickies — dynamic y per row
         const firstItemY = startY + HEADER_H_QA + HEADER_GAP;
+        const rowYOffsets: number[] = [0];
+        for (let r = 1; r < rows; r++) {
+          rowYOffsets.push(rowYOffsets[r - 1] + rowHeights[r - 1] + GAP);
+        }
+
         for (let i = 0; i < items.length; i++) {
           const item = items[i];
           const col = i % cols;
           const row = Math.floor(i / cols);
 
-          let text = item.label;
-          if (item.description) text += `\n\n${item.description}`;
-
           newNodes.push({
             id: generateId(), type: "sticky",
-            x: startX + col * (STICKY_SIZE + GAP),
-            y: firstItemY + row * (STICKY_SIZE + GAP),
-            width: STICKY_SIZE, height: STICKY_SIZE, rotation: 0,
+            x: startX + col * (STICKY_W + GAP),
+            y: firstItemY + rowYOffsets[row],
+            width: STICKY_W, height: itemHeights[i], rotation: 0,
             props: {
-              type: "sticky", text,
+              type: "sticky", text: itemTexts[i],
               color: item.color ?? defaultColor[data.type] ?? "blue",
             },
           });
@@ -1561,34 +1686,50 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         if (node?.type === "text" && node.props.type === "text") {
           const widthRatio = mode.origW === 0 ? 1 : newW / mode.origW;
           const heightRatio = mode.origH === 0 ? 1 : newH / mode.origH;
+
+          // Determine if this is a horizontal-only, vertical-only, or corner resize
+          const isHorizontalOnly = anchorY === null && anchorX !== null;
+          const isVerticalOnly = anchorX === null && anchorY !== null;
+          const isCornerResize = anchorX !== null && anchorY !== null;
+
           let scale = 1;
-          if (anchorX === null && anchorY !== null) {
+
+          if (isVerticalOnly) {
+            // Top/bottom edge: scale by height ratio
             scale = Math.max(0.1, heightRatio);
-          } else if (anchorY === null && anchorX !== null) {
-            scale = Math.max(0.1, widthRatio);
-          } else {
-            scale =
-              Math.abs(widthRatio - 1) >= Math.abs(heightRatio - 1)
-                ? Math.max(0.1, widthRatio)
-                : Math.max(0.1, heightRatio);
+          } else if (isHorizontalOnly) {
+            // Left/right edge: don't scale font, just change width
+            scale = 1;
+          } else if (isCornerResize) {
+            // Corner resize: average both ratios for smooth, controlled scaling
+            // (matches the speed of top/bottom edge resizing)
+            scale = Math.max(0.1, (widthRatio + heightRatio) / 2);
           }
-          const baseFontSize = mode.origTextFontSize ?? node.props.fontSize;
-          const nextFontSize = Math.max(8, Math.round(baseFontSize * scale));
-          const measured = measureTextNodeSize({
-            ...node.props,
-            fontSize: nextFontSize,
-          });
-          newW = measured.width;
-          newH = measured.height;
-          if (anchorX !== null) {
-            newX = anchorX <= world.x ? anchorX : anchorX - newW;
+
+          // Only apply font scaling if not a horizontal-only resize
+          if (!isHorizontalOnly && scale !== 1) {
+            const baseFontSize = mode.origTextFontSize ?? node.props.fontSize;
+            const nextFontSize = Math.max(8, baseFontSize * scale);
+
+            // For smooth dragging, scale dimensions proportionally instead of remeasuring
+            // Remeasuring on every move causes discrete steps due to Math.ceil in measureTextNodeSize
+            newW = mode.origW * scale;
+            newH = mode.origH * scale;
+
+            if (anchorX !== null) {
+              newX = anchorX <= world.x ? anchorX : anchorX - newW;
+            }
+            if (anchorY !== null) {
+              newY = anchorY <= world.y ? anchorY : anchorY - newH;
+            }
+            resizeProps = {
+              fontSize: nextFontSize,
+            } as Partial<NodeProps>;
+          } else if (isHorizontalOnly) {
+            // For horizontal-only resize, keep height at original
+            newH = mode.origH;
+            resizeProps = undefined;
           }
-          if (anchorY !== null) {
-            newY = anchorY <= world.y ? anchorY : anchorY - newH;
-          }
-          resizeProps = {
-            fontSize: nextFontSize,
-          } as Partial<NodeProps>;
         }
 
         dispatch({
@@ -1940,6 +2081,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         // Double-click detection for text editing handled in onDoubleClick
       }
 
+
+
       interaction.current.hasMoved = false;
       interaction.current.undoPushed = false;
       interaction.current.dragMode = { kind: "none" };
@@ -2092,6 +2235,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
     (e: ClipboardEvent) => {
       const items = e.clipboardData?.items;
       if (!items) return;
+      let textHandled = false;
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         if (item.type.startsWith("image/")) {
@@ -2107,6 +2251,77 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             const world = screenToWorld(screenCenterX, screenCenterY, stateRef.current.document.camera);
             createImageNodeFromFile(file, world.x, world.y);
           }
+        } else if (!textHandled && (item.type === "text/html" || item.type === "text/plain")) {
+          e.preventDefault();
+          textHandled = true;
+          const getTextWithFormatting = (callback: (text: string, bold?: boolean, italic?: boolean) => void) => {
+            if (item.type === "text/html") {
+              item.getAsString((html) => {
+                // Try to extract text and detect formatting from HTML
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, "text/html");
+                const text = doc.body.textContent || "";
+
+                // Check for bold formatting (tags + CSS styles)
+                let hasBold = false;
+                let hasItalic = false;
+
+                // Check HTML tags
+                if (html.includes("<b>") || html.includes("<strong>")) hasBold = true;
+                if (html.includes("<i>") || html.includes("<em>")) hasItalic = true;
+
+                // Check CSS font-weight (700 or "bold" in style attributes)
+                if (/font-weight\s*:\s*(bold|700|800|900|\d{3,})/i.test(html)) hasBold = true;
+
+                // Check CSS font-style
+                if (/font-style\s*:\s*italic/i.test(html)) hasItalic = true;
+
+                callback(text, hasBold, hasItalic);
+              });
+            } else {
+              item.getAsString((text) => callback(text, false, false));
+            }
+          };
+
+          getTextWithFormatting((text, hasBold = false, hasItalic = false) => {
+            if (!text.trim()) return;
+            // Get screen center and convert to world
+            const container = containerRef.current;
+            if (!container) return;
+            const rect = container.getBoundingClientRect();
+            const screenCenterX = rect.width / 2;
+            const screenCenterY = rect.height / 2;
+            const world = screenToWorld(screenCenterX, screenCenterY, stateRef.current.document.camera);
+
+            // Get current active style for the text node
+            const style = stateRef.current.activeStyle;
+
+            // Create text props with the pasted content and detected formatting
+            const textProps = {
+              text,
+              fontSize: style.fontSize,
+              color: style.color,
+              fontFamily: style.fontFamily,
+              fontWeight: hasBold ? "bold" : style.fontWeight,
+              fontStyle: hasItalic ? "italic" : style.fontStyle,
+              textDecoration: style.textDecoration,
+            };
+
+            // Measure the text to get proper dimensions
+            const { width, height } = measureTextNodeSize(textProps as TextProps);
+
+            // Create the text node centered at screen center and select it
+            dispatch({
+              type: "CREATE_NODE",
+              nodeType: "text",
+              x: world.x - width / 2,
+              y: world.y - height / 2,
+              width,
+              height,
+              props: { type: "text", ...textProps },
+              selectNode: true,
+            });
+          });
         }
       }
     },
@@ -2332,6 +2547,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
                     node={node}
                     isSelected={isSelected}
                     isEditing={isEditing}
+                    isResizing={isSelected && activeResizeHandle != null}
                     onTextChange={(t) => handleTextChange(id, t)}
                     onSizeChange={(w, h) => handleNodeSizeChange(id, w, h)}
                     onBlur={() => handleTextBlur(id)}
@@ -2345,6 +2561,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
                     isSelected={isSelected}
                     isEditing={isEditing}
                     onTextChange={(t) => handleTextChange(id, t)}
+                    onResize={(w, h) => handleNodeSizeChange(id, w, h)}
                     onBlur={() => handleTextBlur(id)}
                   />
                 );

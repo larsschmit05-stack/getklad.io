@@ -28,9 +28,10 @@ interface AiChatWindowProps {
 
 const QUICK_ACTIONS = [
   { label: "Organize", instruction: "Organize these notes into logical themes with clear labels" },
-  { label: "Questions", instruction: "Ask 4-6 challenging, situation-specific questions about these notes" },
+  { label: "Critical Questions", instruction: "Ask critical questions that challenge assumptions and expose blind spots in these notes" },
   { label: "Create Tasks", instruction: "Create a task list from these notes" },
   { label: "Find Patterns", instruction: "Identify patterns, narrative structure, or missing pieces in these notes" },
+  { label: "Summarize", instruction: "Summarize these notes in a few sentences" },
 ];
 
 // ---------------------------------------------------------------------------

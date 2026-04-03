@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Wand2, LayoutGrid, ListChecks } from "lucide-react";
+import { Wand2, LayoutGrid, ListChecks, FileText, MessageCircleQuestion } from "lucide-react";
 import type { CanvasNode, Camera } from "@/lib/canvas/types";
 import { getSelectionFrameBounds, getConnectedArrowEndpoints, getNodeCenter } from "@/lib/canvas/geometry";
 import { arrowheadPath } from "./nodes/ArrowNode";
@@ -126,6 +126,8 @@ export default function SelectionOverlay({
           node={selectedNodes[0]}
           camera={camera}
           allNodes={allNodes}
+          onAiAction={onAiAction}
+          isAiLoading={isAiLoading}
         />
       )}
 
@@ -255,10 +257,14 @@ function SelectionHandles({
   node,
   camera,
   allNodes,
+  onAiAction,
+  isAiLoading,
 }: {
   node: CanvasNode;
   camera: Camera;
   allNodes: Record<string, CanvasNode>;
+  onAiAction?: (instruction: string) => void;
+  isAiLoading?: boolean;
 }) {
   const z = camera.zoom;
   const handleSize = HANDLE_SIZE_SCREEN / z;
@@ -421,54 +427,67 @@ function SelectionHandles({
     ];
 
     return (
-      <g pointerEvents="none">
-        {node.props.type === "ellipse" ? (
-          <ellipse
-            cx={node.x + node.width / 2}
-            cy={node.y + node.height / 2}
-            rx={Math.max(0, node.width / 2)}
-            ry={Math.max(0, node.height / 2)}
-            fill="none"
-            stroke="#3b82f6"
-            strokeWidth={outlineStroke}
-          />
-        ) : node.props.type === "image" ? (
-          <rect
-            x={frame.minX}
-            y={frame.minY}
-            width={Math.max(0, frame.maxX - frame.minX)}
-            height={Math.max(0, frame.maxY - frame.minY)}
-            fill="none"
-            stroke="#3b82f6"
-            strokeWidth={outlineStroke}
-          />
-        ) : (
-          <rect
-            x={frame.minX}
-            y={frame.minY}
-            width={frame.maxX - frame.minX}
-            height={frame.maxY - frame.minY}
-            rx={2 / z}
-            fill="none"
-            stroke="#3b82f6"
-            strokeWidth={outlineStroke}
+      <g>
+        <g pointerEvents="none">
+          {node.props.type === "ellipse" ? (
+            <ellipse
+              cx={node.x + node.width / 2}
+              cy={node.y + node.height / 2}
+              rx={Math.max(0, node.width / 2)}
+              ry={Math.max(0, node.height / 2)}
+              fill="none"
+              stroke="#3b82f6"
+              strokeWidth={outlineStroke}
+            />
+          ) : node.props.type === "image" ? (
+            <rect
+              x={frame.minX}
+              y={frame.minY}
+              width={Math.max(0, frame.maxX - frame.minX)}
+              height={Math.max(0, frame.maxY - frame.minY)}
+              fill="none"
+              stroke="#3b82f6"
+              strokeWidth={outlineStroke}
+            />
+          ) : (
+            <rect
+              x={frame.minX}
+              y={frame.minY}
+              width={frame.maxX - frame.minX}
+              height={frame.maxY - frame.minY}
+              rx={2 / z}
+              fill="none"
+              stroke="#3b82f6"
+              strokeWidth={outlineStroke}
+            />
+          )}
+          {node.props.type !== "sticky" && corners.map(([key, cx, cy]) => (
+              <rect
+                key={key}
+                data-handle={key}
+                x={cx - handleSize / 2}
+                y={cy - handleSize / 2}
+                width={handleSize}
+                height={handleSize}
+                rx={Math.max(1, handleSize / 4)}
+                fill="white"
+                stroke="#3b82f6"
+                strokeWidth={1.5 / z}
+                style={{ cursor: getCursorForHandle(key) }}
+              />
+            ))}
+        </g>
+        {/* AI button for text and sticky nodes — outside pointerEvents="none" group */}
+        {onAiAction && (node.props.type === "text" || node.props.type === "sticky") && (
+          <AiButtonDropdown
+            anchorX={frame.maxX + 6 / z}
+            anchorY={frame.minY}
+            zoom={z}
+            actions={SINGLE_NODE_AI_ACTIONS}
+            onAiAction={onAiAction}
+            isAiLoading={isAiLoading}
           />
         )}
-        {node.props.type !== "sticky" && corners.map(([key, cx, cy]) => (
-            <rect
-              key={key}
-              data-handle={key}
-              x={cx - handleSize / 2}
-              y={cy - handleSize / 2}
-              width={handleSize}
-              height={handleSize}
-              rx={Math.max(1, handleSize / 4)}
-              fill="white"
-              stroke="#3b82f6"
-              strokeWidth={1.5 / z}
-              style={{ cursor: getCursorForHandle(key) }}
-            />
-          ))}
       </g>
     );
   }
@@ -493,18 +512,198 @@ function getCursorForHandle(handle: string): string {
 // AI quick-action definitions
 // ---------------------------------------------------------------------------
 
-const AI_QUICK_ACTIONS = [
+type AiAction = {
+  label: string;
+  instruction: string;
+  icon: "grid" | "text" | "tasks" | "questions";
+};
+
+const AI_QUICK_ACTIONS: AiAction[] = [
   {
     label: "Organize",
     instruction: "Organize these notes into logical themes with clear labels",
-    icon: "grid" as const,
+    icon: "grid",
+  },
+  {
+    label: "Summarize",
+    instruction: "Summarize these notes in a few sentences",
+    icon: "text",
+  },
+  {
+    label: "Critical Questions",
+    instruction: "Ask critical questions that challenge assumptions and expose blind spots in these notes",
+    icon: "questions",
   },
   {
     label: "Create Tasks",
     instruction: "Create a task list from these notes",
-    icon: "tasks" as const,
+    icon: "tasks",
   },
 ];
+
+const SINGLE_NODE_AI_ACTIONS: AiAction[] = [
+  {
+    label: "Summarize",
+    instruction: "Summarize these notes in a few sentences",
+    icon: "text",
+  },
+  {
+    label: "Critical Questions",
+    instruction: "Ask critical questions that challenge assumptions and expose blind spots in these notes",
+    icon: "questions",
+  },
+  {
+    label: "Create Tasks",
+    instruction: "Create a task list from these notes",
+    icon: "tasks",
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Reusable AI button + dropdown (rendered inside a foreignObject)
+// ---------------------------------------------------------------------------
+
+function AiButtonDropdown({
+  anchorX,
+  anchorY,
+  zoom,
+  actions,
+  onAiAction,
+  isAiLoading,
+}: {
+  anchorX: number;
+  anchorY: number;
+  zoom: number;
+  actions: AiAction[];
+  onAiAction: (instruction: string) => void;
+  isAiLoading?: boolean;
+}) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  const BTN_SIZE = 28;
+  const BTN_GAP = 6;
+  const DROPDOWN_W = 160;
+  const DROPDOWN_ITEM_H = 32;
+  const DROPDOWN_PAD = 4;
+  const dropdownH = actions.length * DROPDOWN_ITEM_H + DROPDOWN_PAD * 2;
+
+  return (
+    <foreignObject
+      x={anchorX}
+      y={anchorY}
+      width={(dropdownOpen ? Math.max(DROPDOWN_W, BTN_SIZE) : BTN_SIZE) / zoom}
+      height={(BTN_SIZE + (dropdownOpen ? BTN_GAP + dropdownH : 0)) / zoom}
+      style={{ overflow: "visible" }}
+    >
+      <div
+        onPointerDown={(e) => e.stopPropagation()}
+        style={{
+          transformOrigin: "top left",
+          transform: `scale(${1 / zoom})`,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-start",
+          gap: `${BTN_GAP}px`,
+        }}
+      >
+        <button
+          onClick={() => setDropdownOpen((o) => !o)}
+          disabled={isAiLoading}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: BTN_SIZE,
+            height: BTN_SIZE,
+            borderRadius: "2px",
+            border: "1px solid var(--klad-ink, #1a1814)",
+            boxShadow: "2px 2px 0 var(--klad-ink, #1a1814)",
+            cursor: isAiLoading ? "not-allowed" : "pointer",
+            backgroundColor: dropdownOpen
+              ? "var(--klad-yellow, #f5e642)"
+              : "var(--klad-paper, #f7f4ef)",
+            color: "var(--klad-ink, #1a1814)",
+            transition: "background-color 0.15s",
+            padding: 0,
+            opacity: isAiLoading ? 0.8 : 1,
+          }}
+        >
+          <Wand2
+            size={14}
+            className={isAiLoading ? "ai-wand-loading" : ""}
+            style={{ display: "block" }}
+          />
+        </button>
+
+        {dropdownOpen && (
+          <div
+            style={{
+              width: DROPDOWN_W,
+              backgroundColor: "var(--klad-paper, #f7f4ef)",
+              border: "1px solid var(--klad-ink, #1a1814)",
+              boxShadow: "3px 3px 0 var(--klad-ink, #1a1814)",
+              borderRadius: "2px",
+              padding: `${DROPDOWN_PAD}px`,
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            {actions.map((action) => (
+              <button
+                key={action.label}
+                onClick={() => {
+                  if (isAiLoading) return;
+                  setDropdownOpen(false);
+                  onAiAction(action.instruction);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  height: DROPDOWN_ITEM_H,
+                  padding: "0 8px",
+                  border: "none",
+                  borderRadius: "2px",
+                  backgroundColor: "transparent",
+                  cursor: isAiLoading ? "default" : "pointer",
+                  opacity: isAiLoading ? 0.5 : 1,
+                  fontFamily: "var(--font-dm-sans, sans-serif)",
+                  fontSize: "12px",
+                  fontWeight: 500,
+                  color: "var(--klad-ink, #1a1814)",
+                  textAlign: "left",
+                  transition: "background-color 0.1s",
+                  width: "100%",
+                }}
+                onMouseEnter={(e) => {
+                  if (!isAiLoading) {
+                    (e.currentTarget as HTMLElement).style.backgroundColor =
+                      "var(--klad-paper2, #ede9e2)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.backgroundColor =
+                    "transparent";
+                }}
+              >
+                {action.icon === "grid" ? (
+                  <LayoutGrid size={14} style={{ color: "var(--klad-ink3, #7a756e)", flexShrink: 0 }} />
+                ) : action.icon === "text" ? (
+                  <FileText size={14} style={{ color: "var(--klad-ink3, #7a756e)", flexShrink: 0 }} />
+                ) : action.icon === "questions" ? (
+                  <MessageCircleQuestion size={14} style={{ color: "var(--klad-ink3, #7a756e)", flexShrink: 0 }} />
+                ) : (
+                  <ListChecks size={14} style={{ color: "var(--klad-ink3, #7a756e)", flexShrink: 0 }} />
+                )}
+                {action.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </foreignObject>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Multi-select bounding box + AI button
@@ -521,8 +720,6 @@ function MultiSelectBoundingBox({
   onAiAction?: (instruction: string) => void;
   isAiLoading?: boolean;
 }) {
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-
   if (nodes.length === 0) return null;
 
   // Compute union bounding box
@@ -540,18 +737,7 @@ function MultiSelectBoundingBox({
 
   const z = camera.zoom;
   const strokeWidth = 1.5 / z;
-
-  // AI button dimensions in screen pixels, converted to world space
-  const BTN_SIZE = 28;
-  const BTN_GAP = 6;
-  const btnSizeWorld = BTN_SIZE / z;
-  const btnGapWorld = BTN_GAP / z;
-
-  // Dropdown dimensions in screen pixels
-  const DROPDOWN_W = 160;
-  const DROPDOWN_ITEM_H = 32;
-  const DROPDOWN_PAD = 4;
-  const dropdownH = AI_QUICK_ACTIONS.length * DROPDOWN_ITEM_H + DROPDOWN_PAD * 2;
+  const btnGapWorld = 6 / z;
 
   return (
     <g>
@@ -569,118 +755,14 @@ function MultiSelectBoundingBox({
 
       {/* AI button at top-right corner of bounding box */}
       {onAiAction && (
-        <foreignObject
-          x={maxX + btnGapWorld}
-          y={minY}
-          width={(dropdownOpen ? Math.max(DROPDOWN_W, BTN_SIZE) : BTN_SIZE) / z}
-          height={(BTN_SIZE + (dropdownOpen ? BTN_GAP + dropdownH : 0)) / z}
-          style={{ overflow: "visible" }}
-        >
-          <div
-            onPointerDown={(e) => e.stopPropagation()}
-            style={{
-              transformOrigin: "top left",
-              transform: `scale(${1 / z})`,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "flex-start",
-              gap: `${BTN_GAP}px`,
-            }}
-          >
-            {/* Wand button */}
-            <button
-              onClick={() => setDropdownOpen((o) => !o)}
-              disabled={isAiLoading}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: BTN_SIZE,
-                height: BTN_SIZE,
-                borderRadius: "2px",
-                border: "1px solid var(--klad-ink, #1a1814)",
-                boxShadow: "2px 2px 0 var(--klad-ink, #1a1814)",
-                cursor: isAiLoading ? "not-allowed" : "pointer",
-                backgroundColor: dropdownOpen
-                  ? "var(--klad-yellow, #f5e642)"
-                  : "var(--klad-paper, #f7f4ef)",
-                color: "var(--klad-ink, #1a1814)",
-                transition: "background-color 0.15s",
-                padding: 0,
-                opacity: isAiLoading ? 0.8 : 1,
-              }}
-            >
-              <Wand2
-                size={14}
-                className={isAiLoading ? "ai-wand-loading" : ""}
-                style={{ display: "block" }}
-              />
-            </button>
-
-            {/* Dropdown */}
-            {dropdownOpen && (
-              <div
-                style={{
-                  width: DROPDOWN_W,
-                  backgroundColor: "var(--klad-paper, #f7f4ef)",
-                  border: "1px solid var(--klad-ink, #1a1814)",
-                  boxShadow: "3px 3px 0 var(--klad-ink, #1a1814)",
-                  borderRadius: "2px",
-                  padding: `${DROPDOWN_PAD}px`,
-                  display: "flex",
-                  flexDirection: "column",
-                }}
-              >
-                {AI_QUICK_ACTIONS.map((action) => (
-                  <button
-                    key={action.label}
-                    onClick={() => {
-                      if (isAiLoading) return;
-                      setDropdownOpen(false);
-                      onAiAction(action.instruction);
-                    }}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      height: DROPDOWN_ITEM_H,
-                      padding: "0 8px",
-                      border: "none",
-                      borderRadius: "2px",
-                      backgroundColor: "transparent",
-                      cursor: isAiLoading ? "default" : "pointer",
-                      opacity: isAiLoading ? 0.5 : 1,
-                      fontFamily: "var(--font-dm-sans, sans-serif)",
-                      fontSize: "12px",
-                      fontWeight: 500,
-                      color: "var(--klad-ink, #1a1814)",
-                      textAlign: "left",
-                      transition: "background-color 0.1s",
-                      width: "100%",
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isAiLoading) {
-                        (e.currentTarget as HTMLElement).style.backgroundColor =
-                          "var(--klad-paper2, #ede9e2)";
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLElement).style.backgroundColor =
-                        "transparent";
-                    }}
-                  >
-                    {action.icon === "grid" ? (
-                      <LayoutGrid size={14} style={{ color: "var(--klad-ink3, #7a756e)", flexShrink: 0 }} />
-                    ) : (
-                      <ListChecks size={14} style={{ color: "var(--klad-ink3, #7a756e)", flexShrink: 0 }} />
-                    )}
-                    {action.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </foreignObject>
+        <AiButtonDropdown
+          anchorX={maxX + btnGapWorld}
+          anchorY={minY}
+          zoom={z}
+          actions={AI_QUICK_ACTIONS}
+          onAiAction={onAiAction}
+          isAiLoading={isAiLoading}
+        />
       )}
     </g>
   );

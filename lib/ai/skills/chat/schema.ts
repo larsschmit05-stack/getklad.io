@@ -3,7 +3,7 @@ import { z } from "zod";
 export const chatResponseSchema = z.object({
   success: z.boolean().describe("Whether the instruction was valid and executed"),
   type: z
-    .enum(["groups", "tasks", "questions", "analysis", "error"])
+    .enum(["groups", "tasks", "questions", "analysis", "summary", "error"])
     .describe("Type of result produced"),
   items: z.array(
     z.object({

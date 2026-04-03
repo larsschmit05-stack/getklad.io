@@ -48,6 +48,7 @@ export type CanvasAction =
       width: number;
       height: number;
       props: NodeProps;
+      selectNode?: boolean;
     }
   | { type: "DELETE_SELECTED" }
   | { type: "MOVE_NODES"; nodeIds: string[]; dx: number; dy: number }
@@ -188,6 +189,8 @@ export function canvasReducer(
         rotation: 0,
         props: action.props,
       };
+      // If selectNode is true, select the node even if it's a text node (for pasted text)
+      const shouldSelect = action.selectNode || node.type !== "text";
       return {
         ...withUndo,
         document: {
@@ -196,13 +199,12 @@ export function canvasReducer(
           nodeOrder: [...withUndo.document.nodeOrder, id],
         },
         selection: {
-          nodeIds:
-            node.type === "text" ? new Set<string>() : new Set([id]),
+          nodeIds: shouldSelect ? new Set([id]) : new Set<string>(),
           marquee: null,
         },
         activeTool: node.type === "freehand" ? "freehand" : "select",
         editingNodeId:
-          node.type === "text" || node.type === "sticky" ? id : null,
+          action.selectNode ? null : (node.type === "text" || node.type === "sticky" ? id : null),
       };
     }
 

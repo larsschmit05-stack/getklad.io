@@ -10,6 +10,7 @@ interface StickyNodeProps {
   isSelected: boolean;
   isEditing: boolean;
   onTextChange?: (text: string) => void;
+  onResize?: (width: number, height: number) => void;
   onBlur?: () => void;
 }
 
@@ -25,9 +26,11 @@ function StickyNode({
   isSelected,
   isEditing,
   onTextChange,
+  onResize,
   onBlur,
 }: StickyNodeProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const measureRef = useRef<HTMLDivElement | null>(null);
   const stickyType = node.props.type;
   const stickyText = stickyType === "sticky" ? node.props.text : "";
 
@@ -41,10 +44,34 @@ function StickyNode({
     textarea.style.height = "0px";
     textarea.style.height = `${Math.min(textarea.scrollHeight, availableHeight)}px`;
 
+    // If text overflows, grow to fit content
+    if (textarea.scrollHeight > availableHeight && onResize) {
+      const needed = textarea.scrollHeight + 24; // content + padding
+      const newH = Math.max(needed, node.width); // at least square
+      if (newH > node.height) {
+        onResize(node.width, newH);
+      }
+    }
+
     // Ensure cursor is at the end of the text
     textarea.selectionStart = textarea.value.length;
     textarea.selectionEnd = textarea.value.length;
-  }, [isEditing, node.height, stickyText, stickyType]);
+  }, [isEditing, node.height, node.width, stickyText, stickyType, onResize]);
+
+  // Auto-fit height to content (grow or shrink, minimum = square)
+  useLayoutEffect(() => {
+    if (stickyType !== "sticky" || isEditing) return;
+    if (!measureRef.current || !onResize) return;
+    const el = measureRef.current;
+    const padding = 24; // 12px top + 12px bottom
+    const contentH = el.scrollHeight;
+    const needed = contentH + padding;
+    const targetH = Math.max(needed, node.width); // at least square
+    // Resize if current height differs from target (grow or shrink)
+    if (Math.abs(targetH - node.height) > 2) {
+      onResize(node.width, targetH);
+    }
+  }, [stickyText, node.width, node.height, stickyType, isEditing, onResize]);
 
   if (stickyType !== "sticky") return null;
   void isSelected;
@@ -147,16 +174,15 @@ function StickyNode({
               overflow: "hidden",
               textAlign: "center",
               lineHeight: String(TEXT_LINE_HEIGHT),
-              alignItems: "center",
+              alignItems: node.height > node.width ? "flex-start" : "center",
               justifyContent: "center",
             }}
           >
             <span
+              ref={measureRef}
               style={{
                 display: "block",
                 width: "100%",
-                maxHeight: "100%",
-                overflow: "hidden",
               }}
             >
               {text}
