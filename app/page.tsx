@@ -3,5 +3,5 @@ import { getUser } from "@/lib/auth";
 
 export default async function Home() {
   const user = await getUser();
-  redirect(user ? "/projects" : "/auth/login");
+  redirect(user ? "/projects" : "/auth");
 }

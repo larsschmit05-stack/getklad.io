@@ -40,7 +40,7 @@ export async function signOut() {
 export async function redirectIfNotAuthenticated() {
   const user = await getUser();
   if (!user) {
-    redirect("/auth/login");
+    redirect("/auth");
   }
   return user;
 }

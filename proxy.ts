@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_ROUTES = ["/", "/auth/callback"];
+const PUBLIC_ROUTES = ["/", "/auth", "/auth/callback"];
 const PUBLIC_PREFIXES = ["/auth/", "/api/auth/", "/shared/"];
 
 function isPublicRoute(pathname: string): boolean {
@@ -42,7 +42,7 @@ export async function proxy(request: NextRequest) {
 
   if (!user && !isPublicRoute(pathname)) {
     const loginUrl = request.nextUrl.clone();
-    loginUrl.pathname = "/auth/login";
+    loginUrl.pathname = "/auth";
     return NextResponse.redirect(loginUrl);
   }
 
