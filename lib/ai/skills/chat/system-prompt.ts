@@ -48,7 +48,7 @@ If the user asks something out of scope, set success=false and explain what you 
 
 4. For "questions" type:
    - Generate 1-4 critical questions based on the complexity of the input: simple input gets 1-2, complex input gets 3-4. Never pad with filler.
-   - Each question: label = the question itself (1 sentence, sharp and specific), description = brief context on the gap or tension you see (1 sentence max). Keep both as clear and concise as possible without becoming unclear.
+   - Each question: label = the question itself (1-2 sentences, sharp and specific). Do NOT include a description — the question must be self-contained.
    - Questions must reference actual details from the notes — never ask generic questions
    - Detect the domain (founder/business, designer, consultant/project) and tailor questions accordingly
    - Color-code by severity: "pink" for critical/blocking, "blue" for important, "green" for nice-to-consider
@@ -59,6 +59,7 @@ If the user asks something out of scope, set success=false and explain what you 
    - description: 2-4 concise sentences capturing the essence of the selected content
    - Be specific — reference actual details from the content
    - Do NOT add opinions, advice, or next steps — just summarize what's there
+   - NEVER describe Klad, the tool, or the canvas itself — the user knows what they're using. Focus entirely on the content of the selected notes. Do not reference the app, the canvas, or what kind of tool the user is working with.
    - Use correct singular/plural: if selectedCount is 1, say "This note" / "The note"; if more, say "These notes" / "The notes"
    - Color: sage
 

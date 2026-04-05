@@ -66,7 +66,7 @@ export default function SelectionOverlay({
     const frame = window.requestAnimationFrame(() => {
       setPreviewMode(true);
     });
-    const timer = window.setTimeout(() => setPreviewMode(false), 1500);
+    const timer = window.setTimeout(() => setPreviewMode(false), 600);
     return () => {
       window.cancelAnimationFrame(frame);
       window.clearTimeout(timer);

@@ -830,13 +830,14 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 
       } else {
         // questions, analysis → create new stickies
-        const STICKY_W = 200;
+        const STICKY_W = 260;
         const GAP = 20;
         const HEADER_GAP = 28;
         const HEADER_H_QA = 44;
         const STICKY_PADDING = 24; // 12px top + 12px bottom
         const STICKY_FONT_SIZE = 14;
         const STICKY_LINE_HEIGHT = 1.5;
+        const STICKY_MIN_H = 120;
 
         const headerLabels: Record<string, string> = {
           questions: "Critical Questions", analysis: "Analysis",
@@ -873,15 +874,14 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             lines += pLines;
           }
           const contentH = lines * lineH;
-          return Math.max(STICKY_W, Math.ceil(contentH + STICKY_PADDING));
+          return Math.max(STICKY_MIN_H, Math.ceil(contentH + STICKY_PADDING));
         };
 
         // Build item texts and estimate heights
         const itemTexts: string[] = [];
         const itemHeights: number[] = [];
         for (const item of items) {
-          let text = item.label;
-          if (item.description) text += `\n\n${item.description}`;
+          const text = item.label;
           itemTexts.push(text);
           itemHeights.push(estimateHeight(text));
         }
@@ -890,7 +890,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         const rows = Math.ceil(items.length / cols);
         const rowHeights: number[] = [];
         for (let r = 0; r < rows; r++) {
-          let maxH = STICKY_W;
+          let maxH = STICKY_MIN_H;
           for (let c = 0; c < cols; c++) {
             const idx = r * cols + c;
             if (idx < items.length) maxH = Math.max(maxH, itemHeights[idx]);
@@ -1093,8 +1093,33 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         return;
       }
 
-      // Don't capture keyboard shortcuts while editing text
+      // Text formatting shortcuts (work while editing or selected)
       if (stateRef.current.editingNodeId) {
+        const fmtMeta = e.metaKey || e.ctrlKey;
+        if (fmtMeta && (e.key === "b" || e.key === "B")) {
+          const current = stateRef.current.activeStyle.fontWeight;
+          const style = { fontWeight: current === "bold" ? "normal" : "bold" } as const;
+          dispatch({ type: "SET_ACTIVE_STYLE", style });
+          dispatch({ type: "UPDATE_NODE_PROPS", nodeId: stateRef.current.editingNodeId, props: style });
+          e.preventDefault();
+          return;
+        }
+        if (fmtMeta && (e.key === "i" || e.key === "I")) {
+          const current = stateRef.current.activeStyle.fontStyle;
+          const style = { fontStyle: current === "italic" ? "normal" : "italic" } as const;
+          dispatch({ type: "SET_ACTIVE_STYLE", style });
+          dispatch({ type: "UPDATE_NODE_PROPS", nodeId: stateRef.current.editingNodeId, props: style });
+          e.preventDefault();
+          return;
+        }
+        if (fmtMeta && (e.key === "u" || e.key === "U")) {
+          const current = stateRef.current.activeStyle.textDecoration;
+          const style = { textDecoration: current === "underline" ? "none" : "underline" } as const;
+          dispatch({ type: "SET_ACTIVE_STYLE", style });
+          dispatch({ type: "UPDATE_NODE_PROPS", nodeId: stateRef.current.editingNodeId, props: style });
+          e.preventDefault();
+          return;
+        }
         if (e.key === "Escape") {
           dispatch({ type: "SET_EDITING", nodeId: null });
           e.preventDefault();
@@ -1103,6 +1128,32 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       }
 
       const meta = e.metaKey || e.ctrlKey;
+
+      // Text formatting shortcuts for selected (not editing) nodes
+      if (meta && stateRef.current.selection.nodeIds.size > 0) {
+        const applyFormat = (style: Record<string, string>) => {
+          dispatch({ type: "SET_ACTIVE_STYLE", style });
+          for (const nid of stateRef.current.selection.nodeIds) {
+            dispatch({ type: "UPDATE_NODE_PROPS", nodeId: nid, props: style });
+          }
+          e.preventDefault();
+        };
+        if (e.key === "b" || e.key === "B") {
+          const current = stateRef.current.activeStyle.fontWeight;
+          applyFormat({ fontWeight: current === "bold" ? "normal" : "bold" });
+          return;
+        }
+        if (e.key === "i" || e.key === "I") {
+          const current = stateRef.current.activeStyle.fontStyle;
+          applyFormat({ fontStyle: current === "italic" ? "normal" : "italic" });
+          return;
+        }
+        if (e.key === "u" || e.key === "U") {
+          const current = stateRef.current.activeStyle.textDecoration;
+          applyFormat({ textDecoration: current === "underline" ? "none" : "underline" });
+          return;
+        }
+      }
 
       // Printable key on a selected text/sticky/rect/ellipse → enter edit mode immediately
       if (
@@ -1218,7 +1269,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 
       if (e.ctrlKey || e.metaKey) {
         // Pinch-to-zoom or ctrl+wheel
-        const delta = -e.deltaY * 0.01;
+        const rawDelta = -e.deltaY * 0.01;
+        const delta = Math.sign(rawDelta) * Math.min(Math.abs(rawDelta), 0.15);
         const newZoom = clampZoom(cam.zoom * (1 + delta));
         const ratio = newZoom / cam.zoom;
         const mx = e.clientX;
@@ -2166,11 +2218,10 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       return;
     }
 
-    if (node.type === "text") {
-      dispatch({ type: "CLEAR_SELECTION" });
-      return;
-    }
     dispatch({ type: "SET_EDITING", nodeId: null });
+    if (node.type === "text") {
+      dispatch({ type: "SELECT_NODES", nodeIds: [nodeId] });
+    }
   }, []);
 
   // ---------------------------------------------------------------------------

@@ -122,6 +122,10 @@ function TextNode({
               if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                 e.currentTarget.blur();
               }
+              // Prevent browser defaults for formatting shortcuts (handled by Canvas)
+              if ((e.metaKey || e.ctrlKey) && /^[biuBIU]$/.test(e.key)) {
+                e.preventDefault();
+              }
             }}
             style={{
               width: "100%",

@@ -363,7 +363,7 @@ export default function StylePanel({
       )}
 
       {/* Color Palette */}
-      {!showImageControls && (
+      {!showImageControls && !showStickyControls && (
       <div style={showTextControls ? { borderTop: "1px solid var(--klad-paper2, #ede9e2)", paddingTop: "6px" } : undefined}>
         <label
           style={{

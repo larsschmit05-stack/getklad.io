@@ -123,6 +123,15 @@ function StickyNode({
               value={text}
               onChange={(e) => onTextChange?.(e.target.value)}
               onBlur={onBlur}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.currentTarget.blur();
+                }
+                // Prevent browser defaults for formatting shortcuts (handled by Canvas)
+                if ((e.metaKey || e.ctrlKey) && /^[biuBIU]$/.test(e.key)) {
+                  e.preventDefault();
+                }
+              }}
               style={{
                 width: "100%",
                 minHeight: "1.35em",

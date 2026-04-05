@@ -15,7 +15,7 @@ There are no automated tests.
 
 ## Architecture
 
-Klad is a Next.js 16 app. The entry point (`app/page.tsx`) immediately redirects to `/projects` or `/auth/login` based on auth state.
+Klad is a Next.js 16 app. The entry point (`app/page.tsx`) immediately redirects to `/projects` or `/auth` based on auth state.
 
 ### Route structure
 
@@ -23,12 +23,14 @@ Klad is a Next.js 16 app. The entry point (`app/page.tsx`) immediately redirects
 app/
   (app)/projects/           → projects list (server component, needs auth)
   (app)/projects/[id]/      → canvas page (server component, needs auth)
-  auth/login|signup/        → magic-link auth pages (outside route group = /auth/* URLs)
-  auth/callback/            → Supabase PKCE code exchange
+  auth/                     → combined login/signup page (tabbed, email+password)
+  auth/login|signup/        → redirects to /auth (legacy URLs)
+  auth/callback/            → Supabase email confirmation code exchange
   api/projects/             → GET list, POST create (free-tier limit enforced)
   api/projects/[id]/        → GET, PUT, DELETE single project
   api/canvases/[projectId]/ → GET canvas state, POST save canvas state
-  api/auth/login|signup/    → POST magic-link email dispatch
+  api/auth/login/           → POST email+password sign-in (signInWithPassword)
+  api/auth/signup/          → POST email+password sign-up (signUp, sends confirmation email)
 proxy.ts                    → route protection (Next.js 16 middleware, replaces middleware.ts)
 ```
 
@@ -36,9 +38,13 @@ The `(app)` route group strips the segment from URLs. The `auth/` directory (no 
 
 ### Auth flow
 
-`proxy.ts` intercepts every non-static request. Public routes are `/`, `/auth/*`, `/api/auth/*`, `/shared/*` — everything else requires a valid session. The proxy calls `supabase.auth.getUser()` (never `getSession()`) to refresh and validate the JWT.
+`proxy.ts` intercepts every non-static request. Public routes are `/`, `/auth`, `/auth/*`, `/api/auth/*`, `/shared/*` — everything else requires a valid session. The proxy calls `supabase.auth.getUser()` (never `getSession()`) to refresh and validate the JWT.
 
-Magic-link signup creates a Supabase Auth user and auto-creates a `profiles` row via a DB trigger. The PKCE code from the email link is exchanged in `app/auth/callback/route.ts` → redirects to `/projects`.
+**Login**: `POST /api/auth/login` with `{ email, password }` → calls `supabase.auth.signInWithPassword()` → returns session directly (no email step). The client does a hard navigation (`window.location.href = "/projects"`) to ensure cookies propagate.
+
+**Signup**: `POST /api/auth/signup` with `{ email, password }` → calls `supabase.auth.signUp()` with `emailRedirectTo` → sends confirmation email. The PKCE code from the email is exchanged in `app/auth/callback/route.ts` → redirects to `/projects`. Signup auto-creates a `profiles` row via a DB trigger.
+
+The auth UI (`app/auth/page.tsx` + `app/auth/auth-form.tsx`) is a single page with tabbed login/signup forms, styled with the Klad editorial palette. The background (`app/auth/auth-background.tsx`) shows an animated SVG canvas scene with a cursor drag-selecting post-its and AI sorting them by theme.
 
 All server-side auth calls go through `lib/auth.ts → getUser()`. Never use `getSession()` on the server — it doesn't validate with Supabase's servers.
 
@@ -154,7 +160,7 @@ Five tables: `profiles` (billing state, auto-created on signup), `projects`, `ca
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY   # server-only, admin client
-NEXT_PUBLIC_APP_URL         # used for magic-link emailRedirectTo
+NEXT_PUBLIC_APP_URL         # used for signup emailRedirectTo
 ```
 
 ## Common Patterns & Gotchas
