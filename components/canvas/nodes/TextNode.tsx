@@ -82,7 +82,7 @@ function TextNode({
     ) {
       onSizeChange?.(measuredWidth, measuredHeight);
     }
-  }, [fontSize, fontFamily, fontStyle, fontWeight, text, node.props, onSizeChange, textType, isEditing, isResizing, node.width, node.height]);
+  }, [fontSize, fontFamily, fontStyle, fontWeight, text, onSizeChange, textType, isEditing, isResizing]);
 
   useLayoutEffect(() => {
     if (!isEditing || !editorRef.current) return;

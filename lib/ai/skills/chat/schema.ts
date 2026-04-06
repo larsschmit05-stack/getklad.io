@@ -3,8 +3,14 @@ import { z } from "zod";
 export const chatResponseSchema = z.object({
   success: z.boolean().describe("Whether the instruction was valid and executed"),
   type: z
-    .enum(["groups", "tasks", "questions", "analysis", "summary", "error"])
+    .enum(["groups", "tasks", "questions", "analysis", "summary", "edit", "error"])
     .describe("Type of result produced"),
+  chatMessage: z
+    .string()
+    .describe(
+      "Brief, direct message for the chat sidebar. Conversational tone. " +
+      "Example: 'Done. 3 themes on canvas.' NOT 'I have organized your notes into three thematic groups.'"
+    ),
   items: z.array(
     z.object({
       id: z.string().optional().describe("Unique item ID, e.g. group-1 or task-1"),
@@ -29,6 +35,15 @@ export const chatResponseSchema = z.object({
         .describe("ID of the selected note this task was extracted from (for tasks only, when there is a clear 1:1 mapping)"),
     })
   ).describe("Result items — groups, tasks, questions, or analysis points"),
+  editNodes: z
+    .array(
+      z.object({
+        nodeId: z.string().describe("ID of the node to edit"),
+        newText: z.string().describe("Updated text content for the node"),
+      })
+    )
+    .optional()
+    .describe("Nodes to edit in place (only for type 'edit')"),
   summary: z.string().describe("1-2 sentence explanation of what was done"),
   error: z.string().optional().describe("Error explanation if success is false"),
   suggestion: z.string().optional().describe("Suggested alternative if request was invalid"),

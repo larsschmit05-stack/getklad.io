@@ -5,7 +5,7 @@ import { getAiUsage, incrementAiUsage } from "@/lib/db";
 import { AI_CONFIG } from "@/lib/ai/config";
 import { SYSTEM_PROMPT } from "@/lib/ai/skills/chat/system-prompt";
 import { chatResponseSchema } from "@/lib/ai/skills/chat/schema";
-import type { OrganizeRequest } from "@/lib/ai/serialize-canvas";
+import type { ChatRequest } from "@/lib/ai/serialize-canvas";
 
 export type { AiChatResponse } from "@/lib/ai/skills/chat/schema";
 
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   }
 
   // Parse body
-  let body: OrganizeRequest & { instruction: string };
+  let body: ChatRequest & { instruction: string };
   try {
     body = await request.json();
   } catch {
@@ -32,20 +32,20 @@ export async function POST(request: Request) {
   }
 
   // Validate
-  const { selectedNodes, canvasMetadata, instruction } = body;
+  const { focusNodes, contextNodes, canvasMetadata, instruction } = body;
   if (!instruction || typeof instruction !== "string" || instruction.trim().length === 0) {
     return NextResponse.json(
       { error: "Please type an instruction" },
       { status: 400 }
     );
   }
-  if (!Array.isArray(selectedNodes) || selectedNodes.length < 1) {
+  if ((canvasMetadata?.totalNodes ?? 0) === 0) {
     return NextResponse.json(
-      { error: "Select at least 1 note" },
+      { error: "Add some notes to the canvas first." },
       { status: 400 }
     );
   }
-  if (selectedNodes.length > AI_CONFIG.maxSelectedNodes) {
+  if (focusNodes && focusNodes.length > AI_CONFIG.maxSelectedNodes) {
     return NextResponse.json(
       { error: `Too many notes selected. Try selecting fewer than ${AI_CONFIG.maxSelectedNodes}.` },
       { status: 400 }
@@ -65,25 +65,28 @@ export async function POST(request: Request) {
   }
 
   // Build user prompt
-  const nodesDescription = selectedNodes
-    .map((n, i) => `${i + 1}. [${n.type}] (id: ${n.id}) ${n.text || "(no text)"}`)
-    .join("\n");
+  const hasFocus = Array.isArray(focusNodes) && focusNodes.length > 0;
 
-  const userPrompt = `INSTRUCTION: ${instruction.trim()}
+  let userPrompt = `INSTRUCTION: ${instruction.trim()}\n\n`;
 
-SELECTED NOTES (${selectedNodes.length}):
-${nodesDescription}
+  if (hasFocus) {
+    const focusDescription = focusNodes
+      .map((n, i) => `${i + 1}. [${n.type}] (id: ${n.id}) ${n.text || "(no text)"}`)
+      .join("\n");
+    userPrompt += `FOCUS NOTES — user is working on these (${focusNodes.length}):\n${focusDescription}\n\n`;
+    userPrompt += `Node IDs to reference: ${focusNodes.map((n) => n.id).join(", ")}\n\n`;
+  } else {
+    userPrompt += `No notes selected. The user is asking about the full canvas.\n\n`;
+  }
 
-${
-  body.visibleNodes && body.visibleNodes.length > 0
-    ? `OTHER VISIBLE NOTES (context only, do NOT include in results):\n${body.visibleNodes
-        .map((n) => `- [${n.type}] ${n.text || "(no text)"}`)
-        .join("\n")}`
-    : ""
-}
+  if (Array.isArray(contextNodes) && contextNodes.length > 0) {
+    const contextDescription = contextNodes
+      .map((n) => `- [${n.type}]${n.id ? ` (id: ${n.id})` : ""} ${n.text || "(no text)"}`)
+      .join("\n");
+    userPrompt += `CANVAS CONTEXT — other content on canvas (do NOT include in structured results unless asked):\n${contextDescription}\n\n`;
+  }
 
-CANVAS INFO: ${canvasMetadata?.totalNodes ?? "unknown"} total nodes on canvas.
-Node IDs to reference: ${selectedNodes.map((n) => n.id).join(", ")}`;
+  userPrompt += `CANVAS INFO: ${canvasMetadata?.totalNodes ?? "unknown"} total nodes on canvas.`;
 
   // Call AI
   try {

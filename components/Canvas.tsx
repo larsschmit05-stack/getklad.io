@@ -11,6 +11,7 @@ import {
 } from "react";
 import { Crop, Download, ChevronLeft } from "lucide-react";
 import { jsPDF } from "jspdf";
+import type Html2Canvas from "html2canvas";
 import type {
   CanvasDocument,
   CanvasNode,
@@ -27,7 +28,7 @@ import {
   type CanvasAction,
 } from "@/lib/canvas/reducer";
 import { generateId } from "@/lib/canvas/types";
-import { serializeForOrganize } from "@/lib/ai/serialize-canvas";
+import { serializeForChat } from "@/lib/ai/serialize-canvas";
 import type { AiChatResponse } from "@/lib/ai/skills/chat/schema";
 import {
   screenToWorld,
@@ -57,7 +58,7 @@ import ImageCropOverlay from "./canvas/ImageCropOverlay";
 import CanvasMenu from "./canvas/CanvasMenu";
 import Toast from "./canvas/Toast";
 import KladAiButton from "./canvas/KladAiButton";
-import AiChatWindow, { type ChatMessage } from "./canvas/AiChatWindow";
+import AiSidebar, { type ChatMessage, AI_SIDEBAR_WIDTH } from "./canvas/AiSidebar";
 import AiUsageCounter from "./canvas/AiUsageCounter";
 import CanvasContextMenu from "./canvas/ContextMenu";
 import TextNode from "./canvas/nodes/TextNode";
@@ -72,21 +73,14 @@ import ImageNode from "./canvas/nodes/ImageNode";
 // Props
 // ---------------------------------------------------------------------------
 
-// AI Organize — layout constants & color map
-const ORGANIZE_COLOR_MAP: Record<string, string> = {
-  blue: "#4a9ebe",
-  amber: "#e8951a",
-  sage: "#5c8c6e",
-  lavender: "#8e6b9e",
-  red: "#c44b3c",
-  navy: "#2c3e50",
-};
-const ORG_STICKY_SIZE = 200; // default sticky w & h
-const ORG_GAP = 24;          // gap between stickies
-const ORG_COLS = 3;           // max stickies per row
-const ORG_HEADER_GAP = 32;   // gap between header and first row
-const ORG_HEADER_H = 44;     // header node height
-const ORG_GROUP_GAP_X = 80;  // horizontal gap between groups
+import {
+  placeGroups,
+  placeTasks,
+  placeSummary,
+  placeQuestionsOrAnalysis,
+  applyEdits,
+  type PlacementResult,
+} from "@/lib/ai/place-on-canvas";
 
 interface CanvasProps {
   projectId: string;
@@ -155,6 +149,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   } | null>(null);
   const [arrowHoverNodeId, setArrowHoverNodeId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
   const [aiChatOpen, setAiChatOpen] = useState(false);
   const [aiChatLoading, setAiChatLoading] = useState(false);
   const [aiChatMessages, setAiChatMessages] = useState<ChatMessage[]>([]);
@@ -426,11 +421,12 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   const handleAiChat = useCallback(async (instruction: string) => {
     const { selection, document } = stateRef.current;
     const selectedIds = selection.nodeIds;
+    const totalNodes = Object.keys(document.nodes).length;
 
-    if (selectedIds.size < 1) {
+    if (totalNodes === 0) {
       setAiChatMessages((m) => [
         ...m,
-        { role: "assistant", text: "Select at least 1 note first.", isError: true },
+        { role: "assistant", text: "Add some notes to the canvas first.", isError: true },
       ]);
       return;
     }
@@ -452,7 +448,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 
     try {
       const payload = {
-        ...serializeForOrganize(selectedIds, document),
+        ...serializeForChat(selectedIds, document),
         instruction,
       };
 
@@ -484,482 +480,76 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       }
 
       // Place results on canvas based on type
-      const selectedNodesList = [...selectedIds]
-        .map((id) => document.nodes[id])
-        .filter(Boolean) as CanvasNode[];
-      const bounds = getSelectionBounds(selectedNodesList);
+      function panToOutput(b: { x: number; y: number; width: number; height: number }) {
+        const startCam = stateRef.current.document.camera;
+        const centerX = b.x + b.width / 2;
+        const centerY = b.y + b.height / 2;
+        const targetX = size.width / 2 - centerX * startCam.zoom;
+        const targetY = size.height / 2 - centerY * startCam.zoom;
 
-      // --- Collision-free placement helper ---
-      // Given desired output width/height, find a position that doesn't
-      // overlap any existing node on the canvas. Starts to the right of
-      // the selection, then scans rightward in steps.
-      const PLACEMENT_GAP = 80; // gap between selection and output
-      const allNodesList = Object.values(document.nodes);
+        const DURATION = 350;
+        const startTime = performance.now();
+        const fromX = startCam.x;
+        const fromY = startCam.y;
 
-      function findFreeArea(
-        outputW: number,
-        outputH: number,
-        anchorY: number,
-      ): { x: number; y: number } {
-        const startX = bounds ? bounds.maxX + PLACEMENT_GAP : 0;
-        const STEP = 100; // scan step size
-        const MAX_ATTEMPTS = 50;
-
-        for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-          const testX = startX + attempt * STEP;
-          const testBounds = {
-            minX: testX,
-            minY: anchorY,
-            maxX: testX + outputW,
-            maxY: anchorY + outputH,
-          };
-
-          const collides = allNodesList.some((node) => {
-            // Skip selected nodes (they may be moved by the AI action)
-            if (selectedIds.has(node.id)) return false;
-            const nb = {
-              minX: node.x,
-              minY: node.y,
-              maxX: node.x + node.width,
-              maxY: node.y + node.height,
-            };
-            return aabbIntersects(testBounds, nb);
-          });
-
-          if (!collides) {
-            return { x: testX, y: anchorY };
-          }
+        function easeOut(t: number) {
+          return 1 - Math.pow(1 - t, 3);
         }
 
-        // Fallback: place far to the right
-        return { x: startX + MAX_ATTEMPTS * STEP, y: anchorY };
+        function step() {
+          const elapsed = performance.now() - startTime;
+          const t = Math.min(elapsed / DURATION, 1);
+          const e = easeOut(t);
+          dispatch({
+            type: "SET_CAMERA",
+            camera: {
+              x: fromX + (targetX - fromX) * e,
+              y: fromY + (targetY - fromY) * e,
+              zoom: startCam.zoom,
+            },
+          });
+          if (t < 1) requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
       }
 
-      // Pan camera to show AI output after placement
-      function panToOutput(outputX: number, outputY: number, outputW: number, outputH: number) {
-        const curCam = stateRef.current.document.camera;
-        const centerX = outputX + outputW / 2;
-        const centerY = outputY + outputH / 2;
-        dispatch({
-          type: "SET_CAMERA",
-          camera: {
-            x: size.width / 2 - centerX * curCam.zoom,
-            y: size.height / 2 - centerY * curCam.zoom,
-            zoom: curCam.zoom,
-          },
-        });
+      function applyPlacement(result: PlacementResult) {
+        if (result.useOrganize) {
+          dispatch({ type: "APPLY_ORGANIZE", updates: result.stickyUpdates, newNodes: result.newNodes });
+        } else if (result.newNodes.length > 0) {
+          dispatch({ type: "PASTE_NODES", nodes: result.newNodes });
+        }
+        if (result.newNodes.length > 0) {
+          const newIds = new Set(result.newNodes.map((n) => n.id));
+          setFadeInNodeIds(newIds);
+          setTimeout(() => setFadeInNodeIds(new Set()), 400);
+        }
+        if (result.outputBounds) {
+          panToOutput(result.outputBounds);
+        }
       }
 
       if (data.type === "groups") {
-        // Organize: reposition selected nodes into groups
-        const headerNodes: CanvasNode[] = [];
-        const stickyUpdates: Array<{
-          nodeId: string; x: number; y: number; width: number; height: number;
-        }> = [];
-
-        // Pre-calculate total output width and height for collision detection
-        // Estimate header text width: ~18px per char at 32px bold sans-serif
-        const EST_CHAR_W = 18;
-        let totalOutputW = 0;
-        let maxGroupH = 0;
-        for (const item of data.items) {
-          const memberIds = (item.nodeIds ?? []).filter((id: string) => document.nodes[id]);
-          if (memberIds.length === 0) continue;
-          const cols = Math.min(memberIds.length, ORG_COLS);
-          const rows = Math.ceil(memberIds.length / ORG_COLS);
-          const gridWidth = cols * ORG_STICKY_SIZE + (cols - 1) * ORG_GAP;
-          const gridHeight = rows * ORG_STICKY_SIZE + (rows - 1) * ORG_GAP;
-          const estimatedHeaderW = item.label.length * EST_CHAR_W;
-          const colWidth = Math.max(gridWidth, estimatedHeaderW);
-          totalOutputW += colWidth + ORG_GROUP_GAP_X;
-          maxGroupH = Math.max(maxGroupH, gridHeight);
-        }
-        totalOutputW = Math.max(0, totalOutputW - ORG_GROUP_GAP_X);
-        const totalOutputH = ORG_HEADER_H + ORG_HEADER_GAP + maxGroupH;
-
-        const anchorY = bounds ? bounds.minY : 0;
-        const freePos = findFreeArea(totalOutputW, totalOutputH, anchorY);
-
-        let cursorX = freePos.x;
-        const baseY = freePos.y;
-
-        for (const item of data.items) {
-          const memberIds = (item.nodeIds ?? []).filter((id: string) => document.nodes[id]);
-          if (memberIds.length === 0) continue;
-
-          const cols = Math.min(memberIds.length, ORG_COLS);
-          const gridWidth = cols * ORG_STICKY_SIZE + (cols - 1) * ORG_GAP;
-          const color = ORGANIZE_COLOR_MAP[item.color ?? "blue"] ?? "#1a1814";
-          const estimatedHeaderW = item.label.length * EST_CHAR_W;
-          const headerWidth = Math.max(gridWidth, estimatedHeaderW);
-          const colWidth = Math.max(gridWidth, estimatedHeaderW);
-          const headerX = cursorX + (colWidth - headerWidth) / 2;
-
-          headerNodes.push({
-            id: generateId(), type: "text", x: headerX, y: baseY,
-            width: headerWidth, height: ORG_HEADER_H, rotation: 0,
-            props: {
-              type: "text", text: item.label, fontSize: 32, color,
-              fontFamily: "sans", fontWeight: "bold", fontStyle: "normal", textDecoration: "none",
-            },
-          });
-
-          const gridTopY = baseY + ORG_HEADER_H + ORG_HEADER_GAP;
-          const gridOffsetX = cursorX + (colWidth - gridWidth) / 2;
-          for (let i = 0; i < memberIds.length; i++) {
-            stickyUpdates.push({
-              nodeId: memberIds[i],
-              x: gridOffsetX + (i % ORG_COLS) * (ORG_STICKY_SIZE + ORG_GAP),
-              y: gridTopY + Math.floor(i / ORG_COLS) * (ORG_STICKY_SIZE + ORG_GAP),
-              width: ORG_STICKY_SIZE, height: ORG_STICKY_SIZE,
-            });
-          }
-          cursorX += colWidth + ORG_GROUP_GAP_X;
-        }
-
-        if (headerNodes.length > 0) {
-          dispatch({ type: "APPLY_ORGANIZE", updates: stickyUpdates, newNodes: headerNodes });
-          const newIds = new Set(headerNodes.map((n) => n.id));
-          setFadeInNodeIds(newIds);
-          setTimeout(() => setFadeInNodeIds(new Set()), 400);
-          panToOutput(freePos.x, freePos.y, totalOutputW, totalOutputH);
-        }
+        applyPlacement(placeGroups(data, document, selectedIds));
       } else if (data.type === "tasks") {
-        // ---------------------------------------------------------------
-        // Kanban task board — moves stickies / converts other nodes into To-do
-        // ---------------------------------------------------------------
-        const COL_GAP = 20;
-        const STICKY_GAP = 16;
-        const HEADER_H = 40;
-        const TITLE_H = 52;
-        const TITLE_GAP = 12;
-        const HEADER_TO_CARDS_GAP = 14;
-        const NUM_COLS = 4;
-        const STICKY_SIZE = 200;
-
-        // Determine column width from sticky size
-        const COL_WIDTH = Math.max(STICKY_SIZE * 1.2, 240);
-        const totalBoardW = NUM_COLS * COL_WIDTH + (NUM_COLS - 1) * COL_GAP;
-
-        // Pre-count tasks to estimate board height
-        let taskCount = 0;
-        for (const item of data.items) {
-          if (item.sourceNodeId && document.nodes[item.sourceNodeId]) taskCount++;
-        }
-        const todoColumnH = taskCount * STICKY_SIZE + Math.max(taskCount - 1, 0) * STICKY_GAP;
-        const totalBoardH = TITLE_H + TITLE_GAP + HEADER_H + HEADER_TO_CARDS_GAP + Math.max(todoColumnH, STICKY_SIZE);
-
-        // Find collision-free position
-        const anchorY = bounds ? bounds.minY : 0;
-        const boardPos = findFreeArea(totalBoardW, totalBoardH, anchorY);
-        const boardX = boardPos.x;
-        const boardY = boardPos.y;
-
-        const frameNodes: CanvasNode[] = [];
-        const stickyUpdates: Array<{
-          nodeId: string; x: number; y: number; width: number; height: number;
-        }> = [];
-
-        // Collect task items with their source nodes
-        // Stickies get moved; other node types get converted to new stickies
-        const taskEntries: Array<{ nodeId: string; isSticky: boolean; label: string }> = [];
-        for (const item of data.items) {
-          if (!item.sourceNodeId) continue;
-          const srcNode = document.nodes[item.sourceNodeId];
-          if (!srcNode) continue;
-          taskEntries.push({
-            nodeId: item.sourceNodeId,
-            isSticky: srcNode.props.type === "sticky",
-            label: item.label,
-          });
-        }
-
-        // Title: "Tasks"
-        const titleX = boardX;
-        const titleY = boardY;
-        frameNodes.push({
-          id: generateId(), type: "text",
-          x: titleX, y: titleY,
-          width: totalBoardW, height: TITLE_H, rotation: 0,
-          props: {
-            type: "text", text: "Tasks",
-            fontSize: 32, color: "#1a1814", fontFamily: "sans",
-            fontWeight: "bold", fontStyle: "normal", textDecoration: "none",
-          },
-        });
-
-        // Column headers (centered in column)
-        const colNames = ["On hold", "To-do", "In progress", "Done"];
-        const colHeaderY = titleY + TITLE_H + TITLE_GAP;
-        for (let c = 0; c < NUM_COLS; c++) {
-          const colX = boardX + c * (COL_WIDTH + COL_GAP);
-          frameNodes.push({
-            id: generateId(), type: "text",
-            x: colX, y: colHeaderY,
-            width: COL_WIDTH, height: HEADER_H, rotation: 0,
-            props: {
-              type: "text", text: colNames[c],
-              fontSize: 24, color: "#7a756e", fontFamily: "sans",
-              fontWeight: "bold", fontStyle: "normal", textDecoration: "none",
-            },
-          });
-        }
-
-        // Column dividers (between columns)
-        const dividerH = HEADER_H + HEADER_TO_CARDS_GAP + Math.max(todoColumnH, STICKY_SIZE);
-        for (let d = 0; d < NUM_COLS - 1; d++) {
-          const divX = boardX + (d + 1) * COL_WIDTH + d * COL_GAP + COL_GAP / 2;
-          frameNodes.push({
-            id: generateId(), type: "rect",
-            x: divX, y: colHeaderY,
-            width: 1, height: dividerH, rotation: 0,
-            props: {
-              type: "rect", fill: "transparent", stroke: "#e3ddd5",
-              strokeWidth: 1, strokeStyle: "solid", fillStyle: "none",
-            },
-          });
-        }
-
-        // Place tasks in To-do column (index 1)
-        const cardStartY = colHeaderY + HEADER_H + HEADER_TO_CARDS_GAP;
-        const todoColCenterX = boardX + 1 * (COL_WIDTH + COL_GAP) + COL_WIDTH / 2;
-
-        for (let i = 0; i < taskEntries.length; i++) {
-          const entry = taskEntries[i];
-          const cardY = cardStartY + i * (STICKY_SIZE + STICKY_GAP);
-
-          if (entry.isSticky) {
-            // Move existing sticky into To-do column (centered)
-            const node = document.nodes[entry.nodeId];
-            if (node) {
-              stickyUpdates.push({
-                nodeId: entry.nodeId,
-                x: todoColCenterX - node.width / 2,
-                y: cardY,
-                width: node.width,
-                height: node.height,
-              });
-            }
-          } else {
-            // Convert non-sticky node to a new sticky in the board
-            frameNodes.push({
-              id: generateId(), type: "sticky",
-              x: todoColCenterX - STICKY_SIZE / 2,
-              y: cardY,
-              width: STICKY_SIZE, height: STICKY_SIZE, rotation: 0,
-              props: {
-                type: "sticky", text: entry.label, color: "yellow",
-              },
-            });
-          }
-        }
-
-        dispatch({ type: "APPLY_ORGANIZE", updates: stickyUpdates, newNodes: frameNodes });
-        const newIds = new Set(frameNodes.map((n) => n.id));
-        setFadeInNodeIds(newIds);
-        setTimeout(() => setFadeInNodeIds(new Set()), 400);
-        panToOutput(boardX, boardY, totalBoardW, totalBoardH);
-
+        applyPlacement(placeTasks(data, document, selectedIds));
       } else if (data.type === "summary") {
-        // summary → header text + word-wrapped body text
-        const SUMMARY_W = 400;
-        const HEADER_H = 44;
-        const HEADER_GAP = 16;
-        const BODY_FONT_SIZE = 16;
-        const BODY_LINE_H = 1.35; // matches TEXT_LINE_HEIGHT
-        const BODY_PAD_X = 12; // matches TEXT_BOX_PADDING_X
-        const BODY_PAD_Y = 10; // matches TEXT_BOX_PADDING_Y
-
-        const rawText = data.items[0]?.description || data.items[0]?.label || data.summary || "";
-
-        // Word-wrap: text nodes use whiteSpace:"pre", so insert \n at word boundaries
-        const maxLineChars = Math.floor((SUMMARY_W - BODY_PAD_X * 2) / (BODY_FONT_SIZE * 0.52));
-        const words = rawText.split(" ");
-        const lines: string[] = [];
-        let currentLine = "";
-        for (const word of words) {
-          const test = currentLine ? `${currentLine} ${word}` : word;
-          if (test.length > maxLineChars && currentLine) {
-            lines.push(currentLine);
-            currentLine = word;
-          } else {
-            currentLine = test;
-          }
+        applyPlacement(placeSummary(data, document, selectedIds));
+      } else if (data.type === "edit") {
+        const { edits } = applyEdits(data, document);
+        for (const edit of edits) {
+          dispatch({ type: "UPDATE_NODE_TEXT", nodeId: edit.nodeId, text: edit.newText });
         }
-        if (currentLine) lines.push(currentLine);
-        const bodyText = lines.join("\n");
-
-        const bodyH = Math.max(40, lines.length * BODY_FONT_SIZE * BODY_LINE_H + BODY_PAD_Y * 2);
-        const outputW = SUMMARY_W;
-        const outputH = HEADER_H + HEADER_GAP + bodyH;
-
-        const anchorY = bounds ? bounds.minY : 0;
-        const freePos = findFreeArea(outputW, outputH, anchorY);
-        const startX = freePos.x;
-        const startY = freePos.y;
-
-        const newNodes: CanvasNode[] = [];
-
-        // Header
-        newNodes.push({
-          id: generateId(), type: "text", x: startX, y: startY,
-          width: SUMMARY_W, height: HEADER_H, rotation: 0,
-          props: {
-            type: "text", text: "Summary",
-            fontSize: 32, color: "#1a1814", fontFamily: "sans",
-            fontWeight: "bold", fontStyle: "normal", textDecoration: "none",
-          },
-        });
-
-        // Body
-        newNodes.push({
-          id: generateId(), type: "text", x: startX, y: startY + HEADER_H + HEADER_GAP,
-          width: SUMMARY_W, height: bodyH, rotation: 0,
-          props: {
-            type: "text", text: bodyText,
-            fontSize: BODY_FONT_SIZE, color: "#3d3a35", fontFamily: "sans",
-            fontWeight: "normal", fontStyle: "normal", textDecoration: "none",
-          },
-        });
-
-        dispatch({ type: "PASTE_NODES", nodes: newNodes });
-        const newIds = new Set(newNodes.map((n) => n.id));
-        setFadeInNodeIds(newIds);
-        setTimeout(() => setFadeInNodeIds(new Set()), 400);
-        panToOutput(startX, startY, outputW, outputH);
-
       } else {
-        // questions, analysis → create new stickies
-        const STICKY_W = 260;
-        const GAP = 20;
-        const HEADER_GAP = 28;
-        const HEADER_H_QA = 44;
-        const STICKY_PADDING = 24; // 12px top + 12px bottom
-        const STICKY_FONT_SIZE = 14;
-        const STICKY_LINE_HEIGHT = 1.5;
-        const STICKY_MIN_H = 120;
-
-        const headerLabels: Record<string, string> = {
-          questions: "Critical Questions", analysis: "Analysis",
-        };
-
-        const defaultColor: Record<string, string> = {
-          questions: "blue", analysis: "lavender",
-        };
-
-        const items = data.items;
-        const cols = items.length <= 2 ? 1 : 2;
-
-        // Estimate sticky height based on text content
-        // Inner width = STICKY_W - 24px padding; avg char width ~0.58em at 14px
-        const innerW = STICKY_W - 24;
-        const charsPerLine = Math.floor(innerW / (STICKY_FONT_SIZE * 0.58));
-        const lineH = STICKY_FONT_SIZE * STICKY_LINE_HEIGHT;
-        const estimateHeight = (text: string) => {
-          let lines = 0;
-          for (const paragraph of text.split("\n")) {
-            if (paragraph.length === 0) { lines += 1; continue; }
-            // Word-wrap estimation: split into words and simulate wrapping
-            const words = paragraph.split(/\s+/);
-            let lineLen = 0;
-            let pLines = 1;
-            for (const word of words) {
-              if (lineLen > 0 && lineLen + 1 + word.length > charsPerLine) {
-                pLines++;
-                lineLen = word.length;
-              } else {
-                lineLen += (lineLen > 0 ? 1 : 0) + word.length;
-              }
-            }
-            lines += pLines;
-          }
-          const contentH = lines * lineH;
-          return Math.max(STICKY_MIN_H, Math.ceil(contentH + STICKY_PADDING));
-        };
-
-        // Build item texts and estimate heights
-        const itemTexts: string[] = [];
-        const itemHeights: number[] = [];
-        for (const item of items) {
-          const text = item.label;
-          itemTexts.push(text);
-          itemHeights.push(estimateHeight(text));
-        }
-
-        // Compute row heights (max of items in each row)
-        const rows = Math.ceil(items.length / cols);
-        const rowHeights: number[] = [];
-        for (let r = 0; r < rows; r++) {
-          let maxH = STICKY_MIN_H;
-          for (let c = 0; c < cols; c++) {
-            const idx = r * cols + c;
-            if (idx < items.length) maxH = Math.max(maxH, itemHeights[idx]);
-          }
-          rowHeights.push(maxH);
-        }
-
-        const gridWidth = cols * STICKY_W + (cols - 1) * GAP;
-        const gridHeight = rowHeights.reduce((s, h) => s + h, 0) + (rows - 1) * GAP;
-        const headerLabel = headerLabels[data.type] ?? "Results";
-        const estHeaderW = headerLabel.length * 18;
-        const outputW = Math.max(gridWidth, estHeaderW, 200);
-        const outputH = HEADER_H_QA + HEADER_GAP + gridHeight;
-
-        const anchorY = bounds ? bounds.minY : 0;
-        const freePos = findFreeArea(outputW, outputH, anchorY);
-        const startX = freePos.x;
-        const startY = freePos.y;
-
-        const newNodes: CanvasNode[] = [];
-        const headerWidth = outputW;
-        const headerX = startX;
-
-        // Header
-        newNodes.push({
-          id: generateId(), type: "text", x: headerX, y: startY,
-          width: headerWidth, height: HEADER_H_QA, rotation: 0,
-          props: {
-            type: "text", text: headerLabel,
-            fontSize: 32, color: "#1a1814", fontFamily: "sans",
-            fontWeight: "bold", fontStyle: "normal", textDecoration: "none",
-          },
-        });
-
-        // Item stickies — dynamic y per row
-        const firstItemY = startY + HEADER_H_QA + HEADER_GAP;
-        const rowYOffsets: number[] = [0];
-        for (let r = 1; r < rows; r++) {
-          rowYOffsets.push(rowYOffsets[r - 1] + rowHeights[r - 1] + GAP);
-        }
-
-        for (let i = 0; i < items.length; i++) {
-          const item = items[i];
-          const col = i % cols;
-          const row = Math.floor(i / cols);
-
-          newNodes.push({
-            id: generateId(), type: "sticky",
-            x: startX + col * (STICKY_W + GAP),
-            y: firstItemY + rowYOffsets[row],
-            width: STICKY_W, height: itemHeights[i], rotation: 0,
-            props: {
-              type: "sticky", text: itemTexts[i],
-              color: item.color ?? defaultColor[data.type] ?? "blue",
-            },
-          });
-        }
-
-        dispatch({ type: "PASTE_NODES", nodes: newNodes });
-        const newIds = new Set(newNodes.map((n) => n.id));
-        setFadeInNodeIds(newIds);
-        setTimeout(() => setFadeInNodeIds(new Set()), 400);
-        panToOutput(startX, startY, outputW, outputH);
+        // questions, analysis
+        applyPlacement(placeQuestionsOrAnalysis(data, document, selectedIds));
       }
 
-      // Show summary in chat
+      // Show chat message from AI
+      const chatText = data.chatMessage || data.summary || `Done. ${data.items.length} items on canvas.`;
       setAiChatMessages((m) => [
         ...m,
-        { role: "assistant", text: data.summary || `Created ${data.items.length} items`, isSuccess: true },
+        { role: "assistant", text: chatText, isSuccess: true },
       ]);
       setUsageRefreshKey((k) => k + 1);
     } catch (err: unknown) {
@@ -988,16 +578,60 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   // ---------------------------------------------------------------------------
   // Export callbacks
   // ---------------------------------------------------------------------------
+  // Build an export-ready SVG string that covers all canvas content, not just the viewport.
+  // Computes a world-space bounding box, clones the SVG, applies a viewBox so all nodes
+  // are visible, and resets the camera transform so nodes render at their world coordinates.
+  const buildExportSvg = useCallback((): { svgStr: string; width: number; height: number } | null => {
+    if (!svgRef.current) return null;
+    const nodes = Object.values(stateRef.current.document.nodes);
+    if (nodes.length === 0) return null;
+
+    const PAD = 60;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const node of nodes) {
+      minX = Math.min(minX, node.x);
+      minY = Math.min(minY, node.y);
+      maxX = Math.max(maxX, node.x + node.width);
+      maxY = Math.max(maxY, node.y + node.height);
+    }
+    minX -= PAD; minY -= PAD; maxX += PAD; maxY += PAD;
+    const contentW = maxX - minX;
+    const contentH = maxY - minY;
+
+    const clone = svgRef.current.cloneNode(true) as SVGSVGElement;
+    clone.setAttribute("viewBox", `${minX} ${minY} ${contentW} ${contentH}`);
+    clone.setAttribute("width", String(contentW));
+    clone.setAttribute("height", String(contentH));
+
+    // Add paper background rect at world coordinates
+    const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    bg.setAttribute("x", String(minX));
+    bg.setAttribute("y", String(minY));
+    bg.setAttribute("width", String(contentW));
+    bg.setAttribute("height", String(contentH));
+    bg.setAttribute("fill", "#f7f4ef");
+    clone.insertBefore(bg, clone.firstChild);
+
+    // Remove camera transform from the main content <g> so nodes render at
+    // world coordinates, which the viewBox now handles correctly.
+    const contentG = clone.querySelector("g[transform]");
+    if (contentG) contentG.removeAttribute("transform");
+
+    return {
+      svgStr: new XMLSerializer().serializeToString(clone),
+      width: contentW,
+      height: contentH,
+    };
+  }, []);
+
   const handleExportSvg = useCallback(() => {
     if (Object.keys(stateRef.current.document.nodes).length === 0) {
       showToast("Nothing to export");
       return;
     }
-    if (!svgRef.current) return;
-    const svgEl = svgRef.current;
-    const serializer = new XMLSerializer();
-    const svgStr = serializer.serializeToString(svgEl);
-    const blob = new Blob([svgStr], { type: "image/svg+xml" });
+    const result = buildExportSvg();
+    if (!result) return;
+    const blob = new Blob([result.svgStr], { type: "image/svg+xml" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -1005,74 +639,110 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
     a.click();
     URL.revokeObjectURL(url);
     showToast("Exported as SVG");
-  }, [showToast]);
+  }, [showToast, buildExportSvg]);
 
-  const handleExportPng = useCallback(() => {
-    if (Object.keys(stateRef.current.document.nodes).length === 0) {
-      showToast("Nothing to export");
-      return;
-    }
-    if (!svgRef.current) return;
-    const svgEl = svgRef.current;
-    const serializer = new XMLSerializer();
-    const svgStr = serializer.serializeToString(svgEl);
-    const img = new Image();
-    const svgBlob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(svgBlob);
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = svgEl.clientWidth;
-      canvas.height = svgEl.clientHeight;
-      const ctx = canvas.getContext("2d")!;
-      ctx.fillStyle = "#f7f4ef"; // --klad-paper background
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
-      URL.revokeObjectURL(url);
-      const a = document.createElement("a");
-      a.download = "canvas.png";
-      a.href = canvas.toDataURL("image/png");
-      a.click();
-      showToast("Exported as PNG");
-    };
-    img.src = url;
-  }, [showToast]);
+  // Capture the live canvas DOM via html2canvas (renders foreignObject text + images)
+  const captureCanvasAsImage = useCallback(async (scale: number): Promise<HTMLCanvasElement | null> => {
+    const container = containerRef.current;
+    if (!container) return null;
 
-  const handleExportPdf = useCallback(() => {
-    if (Object.keys(stateRef.current.document.nodes).length === 0) {
-      showToast("Nothing to export");
-      return;
-    }
-    if (!svgRef.current) return;
-    const svgEl = svgRef.current;
-    const width = svgEl.clientWidth;
-    const height = svgEl.clientHeight;
-    const serializer = new XMLSerializer();
-    const svgStr = serializer.serializeToString(svgEl);
-    const img = new Image();
-    const svgBlob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(svgBlob);
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d")!;
-      ctx.fillStyle = "#f7f4ef";
-      ctx.fillRect(0, 0, width, height);
-      ctx.drawImage(img, 0, 0);
-      URL.revokeObjectURL(url);
+    const allNodes = Object.values(stateRef.current.document.nodes);
+    if (allNodes.length === 0) return null;
 
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF({
-        orientation: width > height ? "landscape" : "portrait",
-        unit: "mm",
-        format: [width / 3.78, height / 3.78],
+    // Save current camera
+    const savedCamera = { ...stateRef.current.document.camera };
+
+    // Compute zoom-to-fit camera (same logic as handleFitContent)
+    const bounds = getSelectionBounds(allNodes);
+    if (!bounds) return null;
+    const padding = Math.max(60, Math.min(size.width, size.height) * 0.1);
+    const bw = bounds.maxX - bounds.minX;
+    const bh = bounds.maxY - bounds.minY;
+    const zoom = clampZoom(
+      Math.min(
+        (size.width - padding * 2) / Math.max(bw, 1),
+        (size.height - padding * 2) / Math.max(bh, 1)
+      )
+    );
+    const contentCenterX = (bounds.minX + bounds.maxX) / 2;
+    const contentCenterY = (bounds.minY + bounds.maxY) / 2;
+
+    // Set export mode + zoom-to-fit camera
+    setIsExporting(true);
+    dispatch({
+      type: "SET_CAMERA",
+      camera: {
+        x: size.width / 2 - contentCenterX * zoom,
+        y: size.height / 2 - contentCenterY * zoom,
+        zoom,
+      },
+    });
+
+    // Wait for React re-render
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 150)));
+    });
+
+    try {
+      const html2canvas: typeof Html2Canvas = (await import("html2canvas")).default;
+      const captured = await html2canvas(container, {
+        scale,
+        useCORS: true,
+        backgroundColor: "#f7f4ef",
+        ignoreElements: (el) => {
+          return el.hasAttribute("data-export-ignore");
+        },
       });
-      pdf.addImage(imgData, "PNG", 0, 0, width / 3.78, height / 3.78);
-      pdf.save("canvas.pdf");
-      showToast("Exported as PDF");
-    };
-    img.src = url;
-  }, [showToast]);
+      return captured;
+    } catch {
+      return null;
+    } finally {
+      // Restore original camera
+      dispatch({ type: "SET_CAMERA", camera: savedCamera });
+      setIsExporting(false);
+    }
+  }, [size]);
+
+  const handleExportPng = useCallback(async () => {
+    if (Object.keys(stateRef.current.document.nodes).length === 0) {
+      showToast("Nothing to export");
+      return;
+    }
+    const captured = await captureCanvasAsImage(2);
+    if (!captured) {
+      showToast("Failed to export as PNG");
+      return;
+    }
+    const a = document.createElement("a");
+    a.download = "canvas.png";
+    a.href = captured.toDataURL("image/png");
+    a.click();
+    showToast("Exported as PNG");
+  }, [showToast, captureCanvasAsImage]);
+
+  const handleExportPdf = useCallback(async () => {
+    if (Object.keys(stateRef.current.document.nodes).length === 0) {
+      showToast("Nothing to export");
+      return;
+    }
+    const captured = await captureCanvasAsImage(3);
+    if (!captured) {
+      showToast("Failed to export as PDF");
+      return;
+    }
+    const imgData = captured.toDataURL("image/png");
+    const pxToMm = 25.4 / 96;
+    const wMm = (captured.width / 3) * pxToMm;
+    const hMm = (captured.height / 3) * pxToMm;
+    const pdf = new jsPDF({
+      orientation: wMm > hMm ? "landscape" : "portrait",
+      unit: "mm",
+      format: [wMm, hMm],
+    });
+    pdf.addImage(imgData, "PNG", 0, 0, wMm, hMm);
+    pdf.save("canvas.pdf");
+    showToast("Exported as PDF");
+  }, [showToast, captureCanvasAsImage]);
 
   // ---------------------------------------------------------------------------
   // Keyboard
@@ -1084,13 +754,27 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         return;
       }
 
-      // Don't capture keyboard shortcuts while AI chat is open
+      // Cmd+J toggles AI sidebar
+      if ((e.metaKey || e.ctrlKey) && e.key === "j") {
+        e.preventDefault();
+        setAiChatOpen((o) => {
+          if (!o) setAiChatMessages([]);
+          return !o;
+        });
+        return;
+      }
+
+      // When AI sidebar is open and user is typing in its input, block tool shortcuts
+      // but allow Escape to close and meta-key combos (Cmd+Z undo etc.) through
       if (aiChatOpenRef.current) {
         if (e.key === "Escape") {
           setAiChatOpen(false);
           e.preventDefault();
+          return;
         }
-        return;
+        // If focus is in a text input, block single-key shortcuts
+        const tag = (document.activeElement?.tagName ?? "").toLowerCase();
+        if (tag === "textarea" || tag === "input") return;
       }
 
       // Text formatting shortcuts (work while editing or selected)
@@ -1333,13 +1017,6 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       // Close context menu on any pointer down
       setCanvasContextMenu(null);
 
-      // If AI chat is open, close it and consume the click
-      // (preserve the current selection so user can re-open)
-      if (aiChatOpenRef.current) {
-        setAiChatOpen(false);
-        return;
-      }
-
       // Block all canvas interactions while crop mode is active
       if (cropModeRef.current) return;
 
@@ -1516,7 +1193,14 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         }
 
         // Connected arrows can't be moved — they're anchored to their endpoint nodes
-        if (hitNode.props.type === "arrow" && hitNode.props.fromNodeId && hitNode.props.toNodeId) {
+        // Filter them out from the move operation, but allow moving other selected nodes
+        const movableNodes = nodesToMove.filter((id) => {
+          const node = s.document.nodes[id];
+          return !(node?.props.type === "arrow" && node?.props.fromNodeId && node?.props.toNodeId);
+        });
+
+        // Only block the drag if there are no movable nodes (e.g., single selected connected arrow)
+        if (movableNodes.length === 0) {
           (e.target as HTMLElement).setPointerCapture(e.pointerId);
           interaction.current.dragMode = { kind: "none" };
           return;
@@ -1529,14 +1213,49 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           kind: "move",
           startX: e.clientX,
           startY: e.clientY,
-          nodeIds: nodesToMove,
+          nodeIds: movableNodes,
         };
         (e.target as HTMLElement).setPointerCapture(e.pointerId);
         return;
       }
 
-      // Clicked empty area — start marquee select
+      // If click lands inside the bounding box of a multi-node selection,
+      // treat it as a move of the whole selection (not a marquee).
       const metaKey = e.metaKey || e.ctrlKey;
+      if (!metaKey && s.selection.nodeIds.size > 1) {
+        const selNodes = Array.from(s.selection.nodeIds).map(
+          (id) => s.document.nodes[id]
+        ).filter(Boolean);
+        if (selNodes.length > 1) {
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (const n of selNodes) {
+            minX = Math.min(minX, n.x);
+            minY = Math.min(minY, n.y);
+            maxX = Math.max(maxX, n.x + n.width);
+            maxY = Math.max(maxY, n.y + n.height);
+          }
+          if (world.x >= minX && world.x <= maxX && world.y >= minY && world.y <= maxY) {
+            const movableNodes = Array.from(s.selection.nodeIds).filter((id) => {
+              const node = s.document.nodes[id];
+              return !(node?.props.type === "arrow" && node?.props.fromNodeId && node?.props.toNodeId);
+            });
+            if (movableNodes.length > 0) {
+              interaction.current.hasMoved = false;
+              interaction.current.undoPushed = false;
+              interaction.current.dragMode = {
+                kind: "move",
+                startX: e.clientX,
+                startY: e.clientY,
+                nodeIds: movableNodes,
+              };
+              (e.target as HTMLElement).setPointerCapture(e.pointerId);
+              return;
+            }
+          }
+        }
+      }
+
+      // Clicked empty area — start marquee select
       if (!metaKey) {
         dispatch({ type: "CLEAR_SELECTION" });
       }
@@ -2284,6 +2003,10 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   // ---------------------------------------------------------------------------
   const handlePaste = useCallback(
     (e: ClipboardEvent) => {
+      // Let the browser handle paste natively when a text input is focused
+      const activeEl = document.activeElement;
+      if (activeEl instanceof HTMLTextAreaElement || activeEl instanceof HTMLInputElement) return;
+
       const items = e.clipboardData?.items;
       if (!items) return;
       let textHandled = false;
@@ -2459,9 +2182,16 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 
   return (
     <div
+      className="fixed inset-0"
+      style={{ display: "flex", flexDirection: "row", overflow: "hidden" }}
+    >
+    <div
       ref={containerRef}
-      className="fixed inset-0 overflow-hidden"
       style={{
+        flex: 1,
+        position: "relative",
+        overflow: "hidden",
+        userSelect: "none",
         cursor: getCursorForTool(
           activeTool,
           spaceDown,
@@ -2494,13 +2224,14 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
     >
       <Link
         href="/projects"
+        data-export-ignore
         onPointerDown={(e) => e.stopPropagation()}
         style={{
           position: "fixed",
           top: "20px",
           left: "24px",
           zIndex: 1000,
-          display: "inline-flex",
+          display: isExporting ? "none" : "inline-flex",
           alignItems: "center",
           gap: "8px",
           color: "var(--klad-ink)",
@@ -2847,7 +2578,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           })()}
 
           {/* Selection overlay (handles, marquee) */}
-          {!cropMode && (
+          {!cropMode && !isExporting && (
             <SelectionOverlay
               selectedNodes={selectedNodes}
               hoveredNode={hoveredNode}
@@ -2861,47 +2592,11 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             />
           )}
 
-          {/* AI Chat — rendered in world space so it moves with the canvas */}
-          {aiChatOpen && (() => {
-            const selBounds = getSelectionBounds(selectedNodes);
-            if (!selBounds) return null;
-            const CHAT_W_WORLD = 320 / cam.zoom;
-            const CHAT_H_WORLD = 280 / cam.zoom;
-            const GAP_WORLD = 32 / cam.zoom;
-            const chatX = (selBounds.minX + selBounds.maxX) / 2 - CHAT_W_WORLD / 2;
-            const chatY = selBounds.minY - CHAT_H_WORLD - GAP_WORLD;
-            return (
-              <foreignObject
-                x={chatX}
-                y={chatY}
-                width={CHAT_W_WORLD}
-                height={CHAT_H_WORLD}
-                style={{ overflow: "visible" }}
-              >
-                <div
-                  style={{
-                    width: 320,
-                    height: 280,
-                    transformOrigin: "top left",
-                    transform: `scale(${1 / cam.zoom})`,
-                  }}
-                >
-                  <AiChatWindow
-                    isLoading={aiChatLoading}
-                    messages={aiChatMessages}
-                    selectedCount={selection.nodeIds.size}
-                    onSend={handleAiChat}
-                    onClose={() => setAiChatOpen(false)}
-                  />
-                </div>
-              </foreignObject>
-            );
-          })()}
         </g>
       </svg>
 
       {/* Crop overlay — shows when image is in crop mode */}
-      {cropMode && (() => {
+      {cropMode && !isExporting && (() => {
         const node = stateRef.current.document.nodes[cropMode.nodeId];
         if (!node) return null;
         const screenPos = worldToScreen(node.x, node.y, state.document.camera);
@@ -2957,14 +2652,18 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
 
       {/* Toolbar group — ActionBar floats above the select button */}
       <div
+        data-export-ignore
         onPointerDown={(e) => e.stopPropagation()}
         style={{
           position: "fixed",
-          left: "50%",
+          left: aiChatOpen
+            ? `calc((100% - ${AI_SIDEBAR_WIDTH}px) / 2)`
+            : "50%",
           bottom: "16px",
           transform: "translateX(-50%)",
+          transition: "left 0.25s ease",
           zIndex: 50,
-          display: "flex",
+          display: isExporting ? "none" : "flex",
           flexDirection: "column",
           alignItems: "flex-start",
           gap: "8px",
@@ -2997,34 +2696,11 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           />
           <div data-ai-button>
             <KladAiButton
-              disabled={selection.nodeIds.size < 1}
+              disabled={false}
               isLoading={aiChatLoading}
               isOpen={aiChatOpen}
               onClick={() => {
                 if (!aiChatOpen) {
-                  // Opening: pan camera to center selection + chat on screen
-                  const selNodes = [...stateRef.current.selection.nodeIds]
-                    .map((id) => stateRef.current.document.nodes[id])
-                    .filter(Boolean) as CanvasNode[];
-                  const selBounds = getSelectionBounds(selNodes);
-                  if (selBounds) {
-                    const curCam = stateRef.current.document.camera;
-                    const CHAT_H_WORLD = 280 / curCam.zoom;
-                    const GAP_WORLD = 32 / curCam.zoom;
-                    // Combined area: from chat top to selection bottom
-                    const combinedTop = selBounds.minY - CHAT_H_WORLD - GAP_WORLD;
-                    const combinedBottom = selBounds.maxY;
-                    const combinedCenterX = (selBounds.minX + selBounds.maxX) / 2;
-                    const combinedCenterY = (combinedTop + combinedBottom) / 2;
-                    dispatch({
-                      type: "SET_CAMERA",
-                      camera: {
-                        x: size.width / 2 - combinedCenterX * curCam.zoom,
-                        y: size.height / 2 - combinedCenterY * curCam.zoom,
-                        zoom: curCam.zoom,
-                      },
-                    });
-                  }
                   setAiChatMessages([]);
                 }
                 setAiChatOpen((o) => !o);
@@ -3034,15 +2710,21 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           <AiUsageCounter refreshKey={usageRefreshKey} />
         </div>
       </div>
-      <ZoomControls
-        zoom={cam.zoom}
-        onZoomIn={handleZoomIn}
-        onZoomOut={handleZoomOut}
-        onFitContent={handleFitContent}
-      />
-      <SaveIndicator status={saveStatus} />
-      <Toast message={toastMessage} onDismiss={() => setToastMessage(null)} />
-      {canvasContextMenu && (
+      <div data-export-ignore style={isExporting ? { display: "none" } : undefined}>
+        <ZoomControls
+          zoom={cam.zoom}
+          onZoomIn={handleZoomIn}
+          onZoomOut={handleZoomOut}
+          onFitContent={handleFitContent}
+        />
+      </div>
+      <div data-export-ignore style={isExporting ? { display: "none" } : undefined}>
+        <SaveIndicator status={saveStatus} rightOffset={aiChatOpen ? AI_SIDEBAR_WIDTH : 0} />
+      </div>
+      <div data-export-ignore style={isExporting ? { display: "none" } : undefined}>
+        <Toast message={toastMessage} onDismiss={() => setToastMessage(null)} />
+      </div>
+      {canvasContextMenu && !isExporting && (
         <CanvasContextMenu
           x={canvasContextMenu.x}
           y={canvasContextMenu.y}
@@ -3088,7 +2770,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           onClose={() => setCanvasContextMenu(null)}
         />
       )}
-      {hasImageSelection && imageToolbarPosition && (
+      {hasImageSelection && imageToolbarPosition && !isExporting && (
         <div
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
@@ -3141,6 +2823,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           </a>
         </div>
       )}
+      <div data-export-ignore style={isExporting ? { display: "none" } : undefined}>
       <CanvasMenu
         canUndo={state.undoStack.length > 0}
         canRedo={state.redoStack.length > 0}
@@ -3163,7 +2846,9 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         onExportSvg={handleExportSvg}
         onExportPdf={handleExportPdf}
       />
+      </div>
 
+      <div data-export-ignore style={isExporting ? { display: "none" } : undefined}>
       <StylePanel
         activeStyle={state.activeStyle}
         hasSelection={selection.nodeIds.size > 0 || !!editingNodeId}
@@ -3214,6 +2899,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           dispatch({ type: actionMap[action], nodeIds: ids });
         }}
       />
+      </div>
 
       {/* Hidden image file input */}
       <input
@@ -3223,6 +2909,43 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         style={{ display: "none" }}
         onChange={handleImageFileChange}
       />
+    </div>
+
+    {/* AI Sidebar */}
+    <AiSidebar
+      isOpen={aiChatOpen}
+      isLoading={aiChatLoading}
+      messages={aiChatMessages}
+      selectedCount={selection.nodeIds.size}
+      totalNodes={Object.keys(doc.nodes).length}
+      onSend={handleAiChat}
+      onClose={() => setAiChatOpen(false)}
+    />
+
+    {/* Export overlay — outside containerRef so html2canvas won't capture it */}
+    {isExporting && (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 9999,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: "rgba(247, 244, 239, 0.85)",
+        }}
+      >
+        <span
+          style={{
+            fontFamily: "var(--font-ibm-plex-mono), monospace",
+            fontSize: "14px",
+            color: "var(--klad-ink3)",
+          }}
+        >
+          Exporting…
+        </span>
+      </div>
+    )}
     </div>
   );
 }

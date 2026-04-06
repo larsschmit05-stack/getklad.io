@@ -122,7 +122,89 @@ function estimateTokens(nodes: OrganizeNodeInput[]): number {
 }
 
 // ---------------------------------------------------------------------------
-// Main serialization function
+// Chat-mode serialization — full canvas with optional focus nodes
+// ---------------------------------------------------------------------------
+
+export type ChatRequest = {
+  focusNodes: OrganizeNodeInput[];
+  contextNodes: OrganizeNodeInput[];
+  canvasMetadata: {
+    totalNodes: number;
+    focusCount: number;
+  };
+};
+
+const CHAT_MAX_FOCUS_TEXT = 500;
+const CHAT_MAX_CONTEXT_TEXT_FULL = 100;
+const CHAT_MAX_CONTEXT_TEXT_SHORT = 40;
+const CHAT_TOKEN_BUDGET = 2000;
+
+export function serializeForChat(
+  selectedNodeIds: Set<string>,
+  document: CanvasDocument
+): ChatRequest {
+  const allNodes = document.nodes;
+  const totalNodes = Object.keys(allNodes).length;
+
+  // Focus nodes (selected) — full text
+  const focusNodes: OrganizeNodeInput[] = [];
+  for (const id of selectedNodeIds) {
+    const node = allNodes[id];
+    if (!node) continue;
+    const input = toNodeInput(node);
+    input.text = truncateText(input.text, CHAT_MAX_FOCUS_TEXT);
+    focusNodes.push(input);
+  }
+
+  // Context nodes (everything else) — abbreviated
+  let contextNodes: OrganizeNodeInput[] = [];
+  // Iterate in reverse nodeOrder (newest/front first) for better context priority
+  for (let i = document.nodeOrder.length - 1; i >= 0; i--) {
+    const id = document.nodeOrder[i];
+    if (selectedNodeIds.has(id)) continue;
+    const node = allNodes[id];
+    if (!node) continue;
+    const input = toNodeInput(node);
+    // Skip nodes with no text content
+    if (!input.text) continue;
+    input.text = truncateText(input.text, CHAT_MAX_CONTEXT_TEXT_FULL);
+    contextNodes.push(input);
+  }
+
+  // Check token budget and truncate if needed
+  const focusTokens = estimateTokens(focusNodes);
+  let contextTokens = estimateTokens(contextNodes);
+
+  if (focusTokens + contextTokens > CHAT_TOKEN_BUDGET) {
+    contextNodes = contextNodes.map((n) => ({
+      ...n,
+      text: truncateText(n.text, CHAT_MAX_CONTEXT_TEXT_SHORT),
+    }));
+    contextTokens = estimateTokens(contextNodes);
+  }
+
+  if (focusTokens + contextTokens > CHAT_TOKEN_BUDGET) {
+    // Drop context nodes from the end (oldest/back) until under budget
+    while (
+      contextNodes.length > 0 &&
+      focusTokens + estimateTokens(contextNodes) > CHAT_TOKEN_BUDGET
+    ) {
+      contextNodes.pop();
+    }
+  }
+
+  return {
+    focusNodes,
+    contextNodes,
+    canvasMetadata: {
+      totalNodes,
+      focusCount: focusNodes.length,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Original serialization function (kept for backward compat)
 // ---------------------------------------------------------------------------
 
 export function serializeForOrganize(
