@@ -1,5 +1,5 @@
 import { createServerSupabaseClient } from "./supabase-server";
-import { FREE_AI_LIMIT } from "./constants";
+import { DAILY_AI_LIMIT } from "./constants";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,17 +36,6 @@ export async function getProjectsByUser(userId: string): Promise<Project[]> {
 
   if (error) throw new Error(error.message);
   return data ?? [];
-}
-
-export async function getProjectCount(userId: string): Promise<number> {
-  const supabase = await createServerSupabaseClient();
-  const { count, error } = await supabase
-    .from("projects")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId);
-
-  if (error) throw new Error(error.message);
-  return count ?? 0;
 }
 
 export async function createProject(
@@ -172,91 +161,64 @@ export async function saveCanvasState(
 }
 
 // ---------------------------------------------------------------------------
-// Profiles
+// AI Usage (daily call counter)
 // ---------------------------------------------------------------------------
 
-export async function getUserPlan(
-  userId: string
-): Promise<"free" | "pro"> {
-  const supabase = await createServerSupabaseClient();
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("plan")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (error) throw new Error(error.message);
-  return (data?.plan as "free" | "pro") ?? "free";
-}
-
-// ---------------------------------------------------------------------------
-// AI Usage (monthly call counter)
-// ---------------------------------------------------------------------------
-
-function getCurrentMonthResetDate(): string {
+function getTodayResetDate(): string {
   const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`;
 }
 
 export type AiUsage = {
   used: number;
-  limit: number;
-  remaining: number;
+  limit: number; // -1 = unlimited
+  remaining: number; // -1 = unlimited
 };
 
 export async function getAiUsage(userId: string): Promise<AiUsage> {
   const supabase = await createServerSupabaseClient();
-  const monthDate = getCurrentMonthResetDate();
+  const resetDate = getTodayResetDate();
 
-  const { data, error } = await supabase
-    .from("ai_usage")
-    .select("calls_count")
-    .eq("user_id", userId)
-    .eq("month_reset_date", monthDate)
-    .maybeSingle();
+  // Fetch today's usage and per-user limit override in parallel
+  const [usageResult, profileResult] = await Promise.all([
+    supabase
+      .from("ai_usage")
+      .select("calls_count")
+      .eq("user_id", userId)
+      .eq("reset_date", resetDate)
+      .maybeSingle(),
+    supabase
+      .from("profiles")
+      .select("daily_ai_limit")
+      .eq("user_id", userId)
+      .maybeSingle(),
+  ]);
 
-  if (error) throw new Error(error.message);
+  if (usageResult.error) throw new Error(usageResult.error.message);
+  if (profileResult.error) throw new Error(profileResult.error.message);
 
-  const used = data?.calls_count ?? 0;
-  const plan = await getUserPlan(userId);
-  const limit = plan === "pro" ? Infinity : FREE_AI_LIMIT;
+  const used = usageResult.data?.calls_count ?? 0;
+  const effectiveLimit = profileResult.data?.daily_ai_limit ?? DAILY_AI_LIMIT;
+
+  // -1 means unlimited
+  if (effectiveLimit === -1) {
+    return { used, limit: -1, remaining: -1 };
+  }
 
   return {
     used,
-    limit: plan === "pro" ? -1 : FREE_AI_LIMIT, // -1 signals unlimited
-    remaining: plan === "pro" ? -1 : Math.max(0, FREE_AI_LIMIT - used),
+    limit: effectiveLimit,
+    remaining: Math.max(0, effectiveLimit - used),
   };
 }
 
 export async function incrementAiUsage(userId: string): Promise<void> {
   const supabase = await createServerSupabaseClient();
-  const monthDate = getCurrentMonthResetDate();
+  const resetDate = getTodayResetDate();
 
-  // Try to increment existing row
-  const { data, error: selectError } = await supabase
-    .from("ai_usage")
-    .select("id, calls_count")
-    .eq("user_id", userId)
-    .eq("month_reset_date", monthDate)
-    .maybeSingle();
-
-  if (selectError) throw new Error(selectError.message);
-
-  if (data) {
-    const { error } = await supabase
-      .from("ai_usage")
-      .update({
-        calls_count: data.calls_count + 1,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", data.id);
-    if (error) throw new Error(error.message);
-  } else {
-    const { error } = await supabase.from("ai_usage").insert({
-      user_id: userId,
-      month_reset_date: monthDate,
-      calls_count: 1,
-    });
-    if (error) throw new Error(error.message);
-  }
+  const { error } = await supabase.rpc("increment_ai_usage", {
+    p_user_id: userId,
+    p_reset_date: resetDate,
+  });
+  if (error) throw new Error(error.message);
 }

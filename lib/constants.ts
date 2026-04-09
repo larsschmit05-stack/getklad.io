@@ -1,7 +1,13 @@
-// Application-wide business limits
+// Application-wide limits
 
-/** Maximum projects allowed on the free plan */
-export const FREE_PROJECT_LIMIT = 3;
+/** Default maximum AI calls per day (overridable per user via profiles.daily_ai_limit) */
+export const DAILY_AI_LIMIT = 20;
 
-/** Maximum AI calls per month on the free plan */
-export const FREE_AI_LIMIT = 50;
+/** Maximum length for project names */
+export const MAX_PROJECT_NAME_LENGTH = 200;
+
+/** Maximum length for AI instructions */
+export const MAX_AI_INSTRUCTION_LENGTH = 2000;
+
+/** Maximum length for feedback messages */
+export const MAX_FEEDBACK_LENGTH = 5000;

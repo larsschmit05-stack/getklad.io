@@ -6,6 +6,7 @@ import { AI_CONFIG } from "@/lib/ai/config";
 import { SYSTEM_PROMPT } from "@/lib/ai/skills/chat/system-prompt";
 import { chatResponseSchema } from "@/lib/ai/skills/chat/schema";
 import type { ChatRequest } from "@/lib/ai/serialize-canvas";
+import { MAX_AI_INSTRUCTION_LENGTH } from "@/lib/constants";
 
 export type { AiChatResponse } from "@/lib/ai/skills/chat/schema";
 
@@ -34,6 +35,12 @@ export async function POST(request: Request) {
   if (!instruction || typeof instruction !== "string" || instruction.trim().length === 0) {
     return NextResponse.json(
       { error: "Please type an instruction" },
+      { status: 400 }
+    );
+  }
+  if (instruction.trim().length > MAX_AI_INSTRUCTION_LENGTH) {
+    return NextResponse.json(
+      { error: `Instruction must be ${MAX_AI_INSTRUCTION_LENGTH} characters or fewer` },
       { status: 400 }
     );
   }

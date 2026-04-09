@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUser } from "@/lib/auth";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { MAX_FEEDBACK_LENGTH } from "@/lib/constants";
 
 export async function POST(req: NextRequest) {
   const user = await getUser();
@@ -8,6 +9,12 @@ export async function POST(req: NextRequest) {
   const { message, pageUrl } = await req.json();
   if (!message || typeof message !== "string" || message.trim().length === 0) {
     return NextResponse.json({ error: "Message is required" }, { status: 400 });
+  }
+  if (message.trim().length > MAX_FEEDBACK_LENGTH) {
+    return NextResponse.json(
+      { error: `Message must be ${MAX_FEEDBACK_LENGTH} characters or fewer` },
+      { status: 400 }
+    );
   }
 
   const supabase = await createServerSupabaseClient();

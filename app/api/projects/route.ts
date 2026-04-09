@@ -1,12 +1,7 @@
-import {
-  createProject,
-  getProjectsByUser,
-  getProjectCount,
-  getUserPlan,
-} from "@/lib/db";
+import { createProject, getProjectsByUser } from "@/lib/db";
 import { getUser } from "@/lib/auth";
 import { NextResponse } from "next/server";
-import { FREE_PROJECT_LIMIT } from "@/lib/constants";
+import { MAX_PROJECT_NAME_LENGTH } from "@/lib/constants";
 
 export async function GET() {
   const user = await getUser();
@@ -44,28 +39,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Project name is required" }, { status: 400 });
   }
 
+  if (name.trim().length > MAX_PROJECT_NAME_LENGTH) {
+    return NextResponse.json(
+      { error: `Project name must be ${MAX_PROJECT_NAME_LENGTH} characters or fewer` },
+      { status: 400 }
+    );
+  }
+
   try {
-    const [plan, count] = await Promise.all([
-      getUserPlan(user.id),
-      getProjectCount(user.id),
-    ]);
-
-    if (plan === "free" && count >= FREE_PROJECT_LIMIT) {
-      return NextResponse.json(
-        { error: `Free tier is limited to ${FREE_PROJECT_LIMIT} projects. Upgrade to Pro for unlimited projects.` },
-        { status: 403 }
-      );
-    }
-
     const project = await createProject(user.id, name.trim());
     return NextResponse.json(project, { status: 201 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "";
-    // The DB trigger raises this exact message when the free-tier limit is hit.
-    // Catch it here so a race condition (two concurrent creates) still returns 403.
-    if (message.startsWith("Free tier limited")) {
-      return NextResponse.json({ error: message }, { status: 403 });
-    }
     console.error("[POST /api/projects]", err);
     return NextResponse.json(
       { error: "Failed to create project" },

@@ -31,8 +31,8 @@ export async function checkAiUsage(userId: string): Promise<NextResponse | null>
   const usage = await getAiUsage(userId);
   if (usage.remaining === 0) {
     return NextResponse.json(
-      { error: "You've used all your free AI calls this month. Upgrade to Pro for unlimited." },
-      { status: 403 }
+      { error: "You've reached today's AI call limit. Your limit resets tomorrow." },
+      { status: 429 }
     );
   }
   return null;

@@ -3,11 +3,12 @@
 import { useState, useEffect } from "react";
 
 interface AiUsageCounterProps {
-  refreshKey: number; // increment to re-fetch after an organize call
+  refreshKey: number; // increment to re-fetch after an AI call
 }
 
 export default function AiUsageCounter({ refreshKey }: AiUsageCounterProps) {
-  const [remaining, setRemaining] = useState<number | null>(null);
+  const [used, setUsed] = useState<number | null>(null);
+  const [limit, setLimit] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -16,8 +17,8 @@ export default function AiUsageCounter({ refreshKey }: AiUsageCounterProps) {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (cancelled || !data) return;
-        // remaining === -1 means Pro (unlimited)
-        setRemaining(data.remaining as number);
+        setUsed(data.used as number);
+        setLimit(data.limit as number);
       })
       .catch(() => {});
 
@@ -26,11 +27,10 @@ export default function AiUsageCounter({ refreshKey }: AiUsageCounterProps) {
     };
   }, [refreshKey]);
 
-  // Hide for Pro users or if not yet loaded
-  if (remaining === null || remaining === -1) return null;
+  // Hide if not yet loaded or unlimited (-1)
+  if (used === null || limit === null || limit === -1) return null;
 
-  // Only show when approaching limit (5 or fewer remaining)
-  if (remaining > 5) return null;
+  const remaining = Math.max(0, limit - used);
 
   return (
     <div
@@ -53,8 +53,8 @@ export default function AiUsageCounter({ refreshKey }: AiUsageCounterProps) {
       }}
     >
       {remaining === 0
-        ? "No AI calls left"
-        : `${remaining} call${remaining === 1 ? "" : "s"} left`}
+        ? "No AI calls left today"
+        : `${used}/${limit} AI calls today`}
     </div>
   );
 }
