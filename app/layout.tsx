@@ -22,6 +22,17 @@ const dmSans = DM_Sans({
 export const metadata: Metadata = {
   title: "Klad — AI Canvas for Solo Builders",
   description: "Brain dump on a canvas. Klad AI turns your chaos into clarity.",
+  icons: { icon: "/klad-logo.ico" },
+  openGraph: {
+    title: "Klad — AI Canvas for Solo Builders",
+    description: "Brain dump on a canvas. Klad AI turns your chaos into clarity.",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "Klad — AI Canvas for Solo Builders",
+    description: "Brain dump on a canvas. Klad AI turns your chaos into clarity.",
+  },
 };
 
 export default function RootLayout({
