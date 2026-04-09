@@ -65,7 +65,7 @@ export type CanvasAction =
   | { type: "UPDATE_NODE_PROPS"; nodeId: string; props: Partial<NodeProps> }
   | { type: "UPDATE_NODE_TEXT"; nodeId: string; text: string }
   | { type: "SET_EDITING"; nodeId: string | null }
-  | { type: "SET_ACTIVE_STYLE"; style: Partial<ActiveStyle> }
+  | { type: "SET_ACTIVE_STYLE"; style: Partial<ActiveStyle>; displayOnly?: boolean }
   | { type: "ALIGN_NODES"; nodeIds: string[]; alignment: AlignmentType }
   | { type: "DUPLICATE_NODES"; nodeIds: string[] }
   | { type: "PASTE_NODES"; nodes: CanvasNode[] }
@@ -79,7 +79,12 @@ export type CanvasAction =
   | { type: "SEND_BACKWARD"; nodeIds: string[] }
   | { type: "SEND_TO_BACK"; nodeIds: string[] }
   | { type: "UNDO" }
-  | { type: "REDO" };
+  | { type: "REDO" }
+  | { type: "PUSH_UNDO" }
+  | {
+      type: "RESIZE_MULTI_NODES";
+      nodes: Array<{ id: string; x: number; y: number; width: number; height: number }>;
+    };
 
 // ---------------------------------------------------------------------------
 // Initial state
@@ -372,8 +377,8 @@ export function canvasReducer(
 
     case "SET_ACTIVE_STYLE": {
       const newStyle = { ...state.activeStyle, ...action.style };
-      // Also propagate the change to any selected nodes
-      if (state.selection.nodeIds.size === 0) {
+      // displayOnly: just update toolbar display without touching node props
+      if (action.displayOnly || state.selection.nodeIds.size === 0) {
         return { ...state, activeStyle: newStyle };
       }
       const withUndo = pushUndo(state);
@@ -689,6 +694,18 @@ export function canvasReducer(
         selection: { nodeIds: new Set(), marquee: null },
         editingNodeId: null,
       };
+    }
+
+    case "PUSH_UNDO":
+      return pushUndo(state);
+
+    case "RESIZE_MULTI_NODES": {
+      const nodes = { ...state.document.nodes };
+      for (const { id, x, y, width, height } of action.nodes) {
+        const n = nodes[id];
+        if (n) nodes[id] = { ...n, x, y, width, height };
+      }
+      return { ...state, document: { ...state.document, nodes } };
     }
 
     default:

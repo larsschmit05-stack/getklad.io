@@ -111,7 +111,13 @@ type DragMode =
     }
   | { kind: "draw"; nodeId: string }
   | { kind: "create-shape"; startWorldX: number; startWorldY: number; nodeId: string | null }
-  | { kind: "connect-arrow"; fromNodeId: string };
+  | { kind: "connect-arrow"; fromNodeId: string }
+  | {
+      kind: "multi-resize";
+      handle: "top-left" | "top-right" | "bottom-left" | "bottom-right";
+      origBbox: { minX: number; minY: number; maxX: number; maxY: number };
+      origNodes: Array<{ id: string; x: number; y: number; w: number; h: number }>;
+    };
 
 // ---------------------------------------------------------------------------
 // Component
@@ -243,9 +249,9 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       newStyle.fillStyle = props.fillStyle;
     }
 
-    // Only dispatch if we have changes
+    // Only update the toolbar display — never propagate to node props from here
     if (Object.keys(newStyle).length > 0) {
-      dispatch({ type: "SET_ACTIVE_STYLE", style: newStyle });
+      dispatch({ type: "SET_ACTIVE_STYLE", style: newStyle, displayOnly: true });
     }
   }, [state.selection.nodeIds, state.editingNodeId]);
 
@@ -1119,6 +1125,39 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         return;
       }
 
+      // Select tool: check multi-select resize handles first
+      if (s.selection.nodeIds.size > 1) {
+        const multiHandle = (e.target as HTMLElement).dataset.multiHandle as
+          | "top-left" | "top-right" | "bottom-left" | "bottom-right"
+          | undefined;
+        if (multiHandle) {
+          const selNodes = Array.from(s.selection.nodeIds)
+            .map((id) => s.document.nodes[id])
+            .filter(Boolean) as CanvasNode[];
+          const movable = selNodes.filter(
+            (n) =>
+              !(n.props.type === "arrow" && "fromNodeId" in n.props && n.props.fromNodeId && n.props.toNodeId)
+          );
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (const n of movable) {
+            minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+            maxX = Math.max(maxX, n.x + n.width); maxY = Math.max(maxY, n.y + n.height);
+          }
+          if (minX !== Infinity) {
+            interaction.current.hasMoved = false;
+            interaction.current.undoPushed = false;
+            interaction.current.dragMode = {
+              kind: "multi-resize",
+              handle: multiHandle,
+              origBbox: { minX, minY, maxX, maxY },
+              origNodes: movable.map((n) => ({ id: n.id, x: n.x, y: n.y, w: n.width, h: n.height })),
+            };
+            (e.target as HTMLElement).setPointerCapture(e.pointerId);
+            return;
+          }
+        }
+      }
+
       // Select tool: check resize handles first (single selected node)
       if (s.selection.nodeIds.size === 1) {
         const selectedId = [...s.selection.nodeIds][0];
@@ -1229,6 +1268,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         if (selNodes.length > 1) {
           let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
           for (const n of selNodes) {
+            // Skip connected arrows — they don't move and would skew the bbox
+            if (n.props.type === "arrow" && "fromNodeId" in n.props && n.props.fromNodeId && n.props.toNodeId) continue;
             minX = Math.min(minX, n.x);
             minY = Math.min(minY, n.y);
             maxX = Math.max(maxX, n.x + n.width);
@@ -1511,6 +1552,39 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           width: newW,
           height: newH,
           props: resizeProps,
+        });
+        return;
+      }
+
+      if (mode.kind === "multi-resize") {
+        const world = screenToWorld(e.clientX, e.clientY, cam);
+        const { origBbox: ob, handle, origNodes } = mode;
+        const bboxW = ob.maxX - ob.minX;
+        const bboxH = ob.maxY - ob.minY;
+        if (bboxW === 0 || bboxH === 0) return;
+
+        // Anchor is the corner opposite the dragged handle
+        const anchorX = handle.includes("left") ? ob.maxX : ob.minX;
+        const anchorY = handle.includes("top") ? ob.maxY : ob.minY;
+
+        const scaleX = Math.abs(world.x - anchorX) / bboxW;
+        const scaleY = Math.abs(world.y - anchorY) / bboxH;
+        const scale = Math.max(0.05, Math.min(scaleX, scaleY));
+
+        if (!interaction.current.undoPushed) {
+          dispatch({ type: "PUSH_UNDO" });
+          interaction.current.undoPushed = true;
+        }
+
+        dispatch({
+          type: "RESIZE_MULTI_NODES",
+          nodes: origNodes.map((n) => ({
+            id: n.id,
+            x: anchorX + (n.x - anchorX) * scale,
+            y: anchorY + (n.y - anchorY) * scale,
+            width: Math.max(10, n.w * scale),
+            height: Math.max(10, n.h * scale),
+          })),
         });
         return;
       }
@@ -3045,11 +3119,11 @@ function defaultPropsForTool(tool: Tool, style: ActiveStyle): NodeProps {
         type: "sticky",
         text: "",
         color: "yellow",
-        fontSize: style.fontSize,
-        fontFamily: style.fontFamily,
-        fontWeight: style.fontWeight,
-        fontStyle: style.fontStyle,
-        textDecoration: style.textDecoration,
+        fontSize: 14,
+        fontFamily: "sans",
+        fontWeight: "normal",
+        fontStyle: "normal",
+        textDecoration: "none",
       };
     case "rect":
       return {

@@ -729,15 +729,33 @@ function MultiSelectBoundingBox({
     maxY = -Infinity;
 
   for (const node of nodes) {
+    // Connected arrows don't move with MOVE_NODES — skip them from bbox
+    if (
+      node.props.type === "arrow" &&
+      "fromNodeId" in node.props &&
+      node.props.fromNodeId &&
+      node.props.toNodeId
+    ) continue;
     minX = Math.min(minX, node.x);
     minY = Math.min(minY, node.y);
     maxX = Math.max(maxX, node.x + node.width);
     maxY = Math.max(maxY, node.y + node.height);
   }
 
+  // All nodes were connected arrows — nothing to render
+  if (minX === Infinity) return null;
+
   const z = camera.zoom;
   const strokeWidth = 1.5 / z;
   const btnGapWorld = 6 / z;
+  const handleSize = HANDLE_SIZE_SCREEN / z;
+
+  const corners: [string, number, number][] = [
+    ["top-left",     minX, minY],
+    ["top-right",    maxX, minY],
+    ["bottom-left",  minX, maxY],
+    ["bottom-right", maxX, maxY],
+  ];
 
   return (
     <g>
@@ -752,6 +770,23 @@ function MultiSelectBoundingBox({
         strokeDasharray={`${4 / z} ${2 / z}`}
         pointerEvents="none"
       />
+
+      {/* Corner resize handles */}
+      {corners.map(([key, cx, cy]) => (
+        <rect
+          key={key}
+          data-multi-handle={key}
+          x={cx - handleSize / 2}
+          y={cy - handleSize / 2}
+          width={handleSize}
+          height={handleSize}
+          rx={Math.max(1, handleSize / 4)}
+          fill="white"
+          stroke="#3b82f6"
+          strokeWidth={1.5 / z}
+          style={{ cursor: getCursorForHandle(key) }}
+        />
+      ))}
 
       {/* AI button at top-right corner of bounding box */}
       {onAiAction && (
