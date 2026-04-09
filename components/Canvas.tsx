@@ -56,6 +56,7 @@ import SaveIndicator from "./canvas/SaveIndicator";
 import StylePanel from "./canvas/StylePanel";
 import ImageCropOverlay from "./canvas/ImageCropOverlay";
 import CanvasMenu from "./canvas/CanvasMenu";
+import FeedbackButton from "@/components/FeedbackButton";
 import Toast from "./canvas/Toast";
 import KladAiButton from "./canvas/KladAiButton";
 import AiSidebar, { type ChatMessage, AI_SIDEBAR_WIDTH } from "./canvas/AiSidebar";
@@ -2920,6 +2921,13 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         onExportSvg={handleExportSvg}
         onExportPdf={handleExportPdf}
       />
+      {/* Feedback button — sits right of the CanvasMenu (...) button */}
+      <div
+        onPointerDown={(e) => e.stopPropagation()}
+        style={{ position: "fixed", top: "12px", left: "170px", zIndex: 50 }}
+      >
+        <FeedbackButton variant="canvas" />
+      </div>
       </div>
 
       <div data-export-ignore style={isExporting ? { display: "none" } : undefined}>

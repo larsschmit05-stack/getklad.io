@@ -3,6 +3,7 @@ import { getUser } from "@/lib/auth";
 import { getProjectsByUser } from "@/lib/db";
 import Header from "@/components/Header";
 import ProjectGrid from "@/components/ProjectGrid";
+import FeedbackButton from "@/components/FeedbackButton";
 
 export default async function ProjectsPage() {
   const user = await getUser();
@@ -16,6 +17,7 @@ export default async function ProjectsPage() {
       <main>
         <ProjectGrid initialProjects={projects} />
       </main>
+      <FeedbackButton />
     </div>
   );
 }
