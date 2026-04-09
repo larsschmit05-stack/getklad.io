@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 400 });
     }
 
     return NextResponse.json({

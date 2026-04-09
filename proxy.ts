@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_ROUTES = ["/", "/auth", "/auth/callback"];
+// "/shared/" prefix reserved for read-only shared canvas links (not yet implemented)
 const PUBLIC_PREFIXES = ["/auth/", "/api/auth/", "/shared/"];
 
 function isPublicRoute(pathname: string): boolean {

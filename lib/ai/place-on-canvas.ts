@@ -37,6 +37,8 @@ const ORGANIZE_COLOR_MAP: Record<string, string> = {
   lavender: "#8e6b9e",
   red: "#c44b3c",
   navy: "#2c3e50",
+  green: "#2d8a56",
+  pink: "#d45b8e",
 };
 
 const ORG_STICKY_SIZE = 200;
