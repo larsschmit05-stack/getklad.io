@@ -429,14 +429,12 @@ export function placeQuestionsOrAnalysis(
     .filter(Boolean) as CanvasNode[];
   const bounds = getSelectionBounds(selectedNodesList);
 
-  const STICKY_W = 260;
+  const STICKY_W = 200;
+  const STICKY_H = 200;
   const GAP = 20;
   const HEADER_GAP = 28;
   const HEADER_H_QA = 44;
-  const STICKY_PADDING = 40;
-  const STICKY_FONT_SIZE = 14;
-  const STICKY_LINE_HEIGHT = 1.5;
-  const STICKY_MIN_H = 140;
+  const S = STICKY_W + GAP; // step between sticky origins
 
   const headerLabels: Record<string, string> = {
     questions: "Critical Questions", analysis: "Analysis",
@@ -447,53 +445,44 @@ export function placeQuestionsOrAnalysis(
   };
 
   const items = data.items;
-  const cols = items.length <= 2 ? 1 : 2;
+  const itemTexts = items.map((item) => item.label);
 
-  const innerW = STICKY_W - 24;
-  const charsPerLine = Math.floor(innerW / (STICKY_FONT_SIZE * 0.58));
-  const lineH = STICKY_FONT_SIZE * STICKY_LINE_HEIGHT;
-  const estimateHeight = (text: string) => {
-    let lineCount = 0;
-    for (const paragraph of text.split("\n")) {
-      if (paragraph.length === 0) { lineCount += 1; continue; }
-      const words = paragraph.split(/\s+/);
-      let lineLen = 0;
-      let pLines = 1;
-      for (const word of words) {
-        if (lineLen > 0 && lineLen + 1 + word.length > charsPerLine) {
-          pLines++;
-          lineLen = word.length;
-        } else {
-          lineLen += (lineLen > 0 ? 1 : 0) + word.length;
-        }
-      }
-      lineCount += pLines;
+  // Custom layouts per count:
+  // 1: single | 2: side by side | 3: 2 top + 1 centered below
+  // 4: 2×2 | 5: 2×2 + 5th right-middle | 6: 2×3
+  const getPositions = (count: number): Array<{ x: number; y: number }> => {
+    switch (count) {
+      case 1: return [{ x: 0, y: 0 }];
+      case 2: return [{ x: 0, y: 0 }, { x: S, y: 0 }];
+      case 3: return [
+        { x: 0, y: 0 }, { x: S, y: 0 },
+        { x: S / 2, y: S },
+      ];
+      case 4: return [
+        { x: 0, y: 0 },  { x: S, y: 0 },
+        { x: 0, y: S },  { x: S, y: S },
+      ];
+      case 5: return [
+        { x: 0, y: 0 },      { x: S, y: 0 },
+        { x: 0, y: S },      { x: S, y: S },
+        { x: 2 * S, y: S / 2 },
+      ];
+      case 6: return [
+        { x: 0, y: 0 },      { x: S, y: 0 },
+        { x: 0, y: S },      { x: S, y: S },
+        { x: 0, y: 2 * S },  { x: S, y: 2 * S },
+      ];
+      default: return Array.from({ length: count }, (_, i) => ({
+        x: (i % 2) * S,
+        y: Math.floor(i / 2) * S,
+      }));
     }
-    const contentH = lineCount * lineH;
-    return Math.max(STICKY_MIN_H, Math.ceil(contentH + STICKY_PADDING));
   };
 
-  const itemTexts: string[] = [];
-  const itemHeights: number[] = [];
-  for (const item of items) {
-    const text = item.label;
-    itemTexts.push(text);
-    itemHeights.push(estimateHeight(text));
-  }
+  const positions = getPositions(items.length);
+  const gridWidth = Math.max(...positions.map((p) => p.x)) + STICKY_W;
+  const gridHeight = Math.max(...positions.map((p) => p.y)) + STICKY_H;
 
-  const rows = Math.ceil(items.length / cols);
-  const rowHeights: number[] = [];
-  for (let r = 0; r < rows; r++) {
-    let maxH = STICKY_MIN_H;
-    for (let c = 0; c < cols; c++) {
-      const idx = r * cols + c;
-      if (idx < items.length) maxH = Math.max(maxH, itemHeights[idx]);
-    }
-    rowHeights.push(maxH);
-  }
-
-  const gridWidth = cols * STICKY_W + (cols - 1) * GAP;
-  const gridHeight = rowHeights.reduce((s, h) => s + h, 0) + (rows - 1) * GAP;
   const headerLabel = headerLabels[data.type] ?? "Results";
   const estHeaderW = headerLabel.length * 18;
   const outputW = Math.max(gridWidth, estHeaderW, 200);
@@ -517,21 +506,16 @@ export function placeQuestionsOrAnalysis(
   });
 
   const firstItemY = startY + HEADER_H_QA + HEADER_GAP;
-  const rowYOffsets: number[] = [0];
-  for (let r = 1; r < rows; r++) {
-    rowYOffsets.push(rowYOffsets[r - 1] + rowHeights[r - 1] + GAP);
-  }
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
-    const col = i % cols;
-    const row = Math.floor(i / cols);
+    const pos = positions[i];
 
     newNodes.push({
       id: generateId(), type: "sticky",
-      x: startX + col * (STICKY_W + GAP),
-      y: firstItemY + rowYOffsets[row],
-      width: STICKY_W, height: itemHeights[i], rotation: 0,
+      x: startX + pos.x,
+      y: firstItemY + pos.y,
+      width: STICKY_W, height: STICKY_H, rotation: 0,
       props: {
         type: "sticky", text: itemTexts[i],
         color: item.color ?? defaultColor[data.type] ?? "blue",
