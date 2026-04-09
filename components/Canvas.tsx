@@ -483,15 +483,26 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
       // Place results on canvas based on type
       function panToOutput(b: { x: number; y: number; width: number; height: number }) {
         const startCam = stateRef.current.document.camera;
+
+        // Compute zoom to fit output bounds (same math as handleFitContent)
+        const padding = Math.max(60, Math.min(size.width, size.height) * 0.1);
+        const targetZoom = clampZoom(
+          Math.min(
+            (size.width - padding * 2) / Math.max(b.width, 1),
+            (size.height - padding * 2) / Math.max(b.height, 1)
+          ) * 0.8
+        );
+
         const centerX = b.x + b.width / 2;
         const centerY = b.y + b.height / 2;
-        const targetX = size.width / 2 - centerX * startCam.zoom;
-        const targetY = size.height / 2 - centerY * startCam.zoom;
+        const targetX = size.width / 2 - centerX * targetZoom;
+        const targetY = size.height / 2 - centerY * targetZoom;
 
         const DURATION = 350;
         const startTime = performance.now();
         const fromX = startCam.x;
         const fromY = startCam.y;
+        const fromZoom = startCam.zoom;
 
         function easeOut(t: number) {
           return 1 - Math.pow(1 - t, 3);
@@ -506,7 +517,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
             camera: {
               x: fromX + (targetX - fromX) * e,
               y: fromY + (targetY - fromY) * e,
-              zoom: startCam.zoom,
+              zoom: fromZoom + (targetZoom - fromZoom) * e,
             },
           });
           if (t < 1) requestAnimationFrame(step);
