@@ -3,6 +3,75 @@
 import { useState, useRef, useEffect } from "react";
 import { MoreHorizontal } from "lucide-react";
 
+function MenuItem({
+  label,
+  shortcut,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  shortcut?: string;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        width: "100%",
+        padding: "8px 12px",
+        textAlign: "left",
+        border: "none",
+        background: "transparent",
+        cursor: disabled ? "not-allowed" : "pointer",
+        color: disabled ? "var(--klad-paper3, #e3ddd5)" : "var(--klad-ink, #1a1814)",
+        fontSize: "14px",
+        fontFamily: "var(--font-dm-sans)",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        transition: "background-color 0.1s",
+      }}
+      onMouseEnter={(e) => {
+        if (!disabled) {
+          (e.currentTarget as HTMLButtonElement).style.backgroundColor =
+            "var(--klad-paper2, #ede9e2)";
+        }
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.backgroundColor =
+          "transparent";
+      }}
+    >
+      <span>{label}</span>
+      {shortcut && (
+        <span
+          style={{
+            marginLeft: "16px",
+            fontSize: "12px",
+            color: "var(--klad-ink3, #7a756e)",
+          }}
+        >
+          {shortcut}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function Divider() {
+  return (
+    <div
+      style={{
+        height: "1px",
+        backgroundColor: "var(--klad-paper3, #e3ddd5)",
+        margin: "4px 0",
+      }}
+    />
+  );
+}
+
 interface CanvasMenuProps {
   canUndo: boolean;
   canRedo: boolean;
@@ -65,71 +134,6 @@ export default function CanvasMenu({
     callback();
     setIsOpen(false);
   };
-
-  const MenuItem = ({
-    label,
-    shortcut,
-    disabled,
-    onClick,
-  }: {
-    label: string;
-    shortcut?: string;
-    disabled?: boolean;
-    onClick: () => void;
-  }) => (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        width: "100%",
-        padding: "8px 12px",
-        textAlign: "left",
-        border: "none",
-        background: "transparent",
-        cursor: disabled ? "not-allowed" : "pointer",
-        color: disabled ? "var(--klad-paper3, #e3ddd5)" : "var(--klad-ink, #1a1814)",
-        fontSize: "14px",
-        fontFamily: "var(--font-dm-sans)",
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        transition: "background-color 0.1s",
-      }}
-      onMouseEnter={(e) => {
-        if (!disabled) {
-          (e.currentTarget as HTMLButtonElement).style.backgroundColor =
-            "var(--klad-paper2, #ede9e2)";
-        }
-      }}
-      onMouseLeave={(e) => {
-        (e.currentTarget as HTMLButtonElement).style.backgroundColor =
-          "transparent";
-      }}
-    >
-      <span>{label}</span>
-      {shortcut && (
-        <span
-          style={{
-            marginLeft: "16px",
-            fontSize: "12px",
-            color: "var(--klad-ink3, #7a756e)",
-          }}
-        >
-          {shortcut}
-        </span>
-      )}
-    </button>
-  );
-
-  const Divider = () => (
-    <div
-      style={{
-        height: "1px",
-        backgroundColor: "var(--klad-paper3, #e3ddd5)",
-        margin: "4px 0",
-      }}
-    />
-  );
 
   return (
     <div

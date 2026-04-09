@@ -10,7 +10,6 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Crop, Download, ChevronLeft } from "lucide-react";
-import { jsPDF } from "jspdf";
 import type Html2Canvas from "html2canvas";
 import type {
   CanvasDocument,
@@ -410,11 +409,6 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
     showToast("Pasted");
   }, [showToast]);
 
-  const handleCopyToClipboardCallback = useCallback(() => {
-    handleCopyToClipboard();
-    setHasClipboard(true);
-  }, []);
-
   const handleDeleteSelected = useCallback(() => {
     const ids = stateRef.current.selection.nodeIds;
     if (ids.size === 0) return;
@@ -741,6 +735,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
     const pxToMm = 25.4 / 96;
     const wMm = (captured.width / 3) * pxToMm;
     const hMm = (captured.height / 3) * pxToMm;
+    const { jsPDF } = await import("jspdf");
     const pdf = new jsPDF({
       orientation: wMm > hMm ? "landscape" : "portrait",
       unit: "mm",
@@ -1391,11 +1386,9 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         const dy = (e.clientY - mode.startY) / cam.zoom;
         if (!interaction.current.hasMoved && (Math.abs(dx) > 1 || Math.abs(dy) > 1)) {
           interaction.current.hasMoved = true;
-          // Push undo only on first actual movement
+          // Push undo snapshot before first actual movement
           if (!interaction.current.undoPushed) {
-            // We can't push undo from here directly via reducer cleanly, so
-            // we rely on the fact that MOVE_NODES doesn't push undo. We'll
-            // push undo in pointerUp if the node was actually moved.
+            dispatch({ type: "PUSH_UNDO" });
             interaction.current.undoPushed = true;
           }
         }
@@ -1792,8 +1785,6 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
           // Free arrow from source node edge to release point
           const fromNode = s.document.nodes[mode.fromNodeId];
           if (fromNode) {
-            const fromCx = fromNode.x + fromNode.width / 2;
-            const fromCy = fromNode.y + fromNode.height / 2;
             const srcEdge = getBBoxEdgePoint(fromNode, world.x, world.y);
             const dx = world.x - srcEdge.x;
             const dy = world.y - srcEdge.y;

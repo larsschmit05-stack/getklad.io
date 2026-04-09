@@ -41,7 +41,10 @@ export default function ImageCropOverlay({
   const [draggingHandle, setDraggingHandle] = useState<Handle | null>(null);
   const dragStateRef = useRef<{ handle: Handle | null }>({ handle: null });
   const cropBoxRef = useRef(cropBox);
-  cropBoxRef.current = cropBox;
+
+  useEffect(() => {
+    cropBoxRef.current = cropBox;
+  }, [cropBox]);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   const handlePointerDown = (handle: Handle) => (e: React.PointerEvent) => {
