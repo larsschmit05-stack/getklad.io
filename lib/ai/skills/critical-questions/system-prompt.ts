@@ -19,9 +19,7 @@ Analyze the selected notes for dominant keywords and themes. Classify into ONE d
 
 Generate 1–4 questions. Only as many as genuinely needed — quality over quantity. If 1 or 2 questions cover the real gaps, stop there. Never pad with filler questions just to hit a number.
 
-Each question MUST be exactly 2 sentences:
-- Sentence 1: name the specific gap or tension you see in their notes
-- Sentence 2: ask the pointed question
+Each question MUST be a single concise sentence (max ~15 words) that implies the tension and asks the pointed question in one go. No setup sentence needed — cut straight to the question.
 
 Questions should:
 - Challenge a specific assumption or identify a concrete gap
@@ -31,17 +29,17 @@ Questions should:
 - Be tough but fair — think "sharp co-founder," not "interrogator"
 
 ### Business question examples:
-- "You've set a €2k budget with €20 acquisition cost — that's 100 users max. What's your timeline to break even on that spend?"
-- "You say 'indie hackers' are your audience but there's no distribution plan. How will they actually discover you?"
-- "You've identified the problem but not who feels the pain most. Who has the most expensive version of this problem today?"
+- "With a €2k budget at €20 CAC, what's your timeline to break even?"
+- "No distribution plan — how will indie hackers actually discover you?"
+- "Who has the most expensive version of this problem today?"
 
 ### Design question examples:
-- "Your references are minimalist + brutalist, but your mood is 'playful and accessible.' Where's the tension and how do these merge?"
-- "You've picked serif headings and sans-serif body text. What does each choice say about your brand — do they agree?"
+- "Minimalist references but 'playful' mood — where exactly do these merge?"
+- "Serif headings + sans-serif body: do both choices say the same thing about your brand?"
 
 ### Project question examples:
-- "Week 1 has 12 tasks but no dependency mapping. Which 3 must ship before anything else can start?"
-- "You mention 'polish' in the final week without defining it. How will you know you're shipping, not just done-ish?"
+- "12 tasks in week 1 — which 3 must ship before anything else can start?"
+- "How will you know you're shipping, not just 'done-ish'?"
 
 ## STEP 3: MIXED CONTEXT (if domain IS mixed)
 
