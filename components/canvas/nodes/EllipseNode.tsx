@@ -9,6 +9,7 @@ import {
   TEXT_BOX_PADDING_Y,
   TEXT_LINE_HEIGHT,
 } from "@/lib/canvas/text";
+import { resolveFill, strokeDashArray } from "@/lib/canvas/shape-styles";
 
 interface EllipseNodeProps {
   node: CanvasNode;
@@ -17,18 +18,6 @@ interface EllipseNodeProps {
   onTextChange?: (text: string) => void;
   onBlur?: () => void;
   onResize?: (width: number, height: number) => void;
-}
-
-function strokeDashArray(style: string | undefined, width: number): string | undefined {
-  if (style === "dashed") return `${width * 6} ${width * 4}`;
-  if (style === "dotted") return `${width} ${width * 3}`;
-  return undefined;
-}
-
-function resolveFill(fill: string, fillStyle: string | undefined): { fill: string; fillOpacity: number } {
-  if (fillStyle === "none") return { fill: "transparent", fillOpacity: 0 };
-  if (fillStyle === "semi") return { fill, fillOpacity: 0.25 };
-  return { fill, fillOpacity: 1 };
 }
 
 function EllipseNode({

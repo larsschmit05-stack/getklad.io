@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from "./supabase-server";
+import { FREE_AI_LIMIT } from "./constants";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -191,8 +192,6 @@ export async function getUserPlan(
 // ---------------------------------------------------------------------------
 // AI Usage (monthly call counter)
 // ---------------------------------------------------------------------------
-
-const FREE_AI_LIMIT = 50;
 
 function getCurrentMonthResetDate(): string {
   const now = new Date();

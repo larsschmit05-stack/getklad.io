@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { generateText, Output } from "ai";
-import { getUser } from "@/lib/auth";
-import { getAiUsage, incrementAiUsage } from "@/lib/db";
+import { incrementAiUsage } from "@/lib/db";
+import { requireAuth, checkAiUsage } from "@/lib/ai/route-utils";
 import { AI_CONFIG } from "@/lib/ai/config";
 import { SYSTEM_PROMPT } from "@/lib/ai/skills/chat/system-prompt";
 import { chatResponseSchema } from "@/lib/ai/skills/chat/schema";
@@ -14,11 +14,9 @@ export type { AiChatResponse } from "@/lib/ai/skills/chat/schema";
 // ---------------------------------------------------------------------------
 
 export async function POST(request: Request) {
-  // Auth
-  const user = await getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const authResult = await requireAuth();
+  if (authResult instanceof NextResponse) return authResult;
+  const user = authResult;
 
   // Parse body
   let body: ChatRequest & { instruction: string };
@@ -52,17 +50,8 @@ export async function POST(request: Request) {
     );
   }
 
-  // Check usage limits
-  const usage = await getAiUsage(user.id);
-  if (usage.remaining === 0) {
-    return NextResponse.json(
-      {
-        error:
-          "You've used all your free AI calls this month. Upgrade to Pro for unlimited.",
-      },
-      { status: 403 }
-    );
-  }
+  const usageError = await checkAiUsage(user.id);
+  if (usageError) return usageError;
 
   // Build user prompt
   const hasFocus = Array.isArray(focusNodes) && focusNodes.length > 0;
