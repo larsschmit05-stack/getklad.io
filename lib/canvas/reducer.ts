@@ -43,6 +43,7 @@ export type CanvasAction =
   | {
       type: "CREATE_NODE";
       nodeType: CanvasNode["type"];
+      id?: string;
       x: number;
       y: number;
       width: number;
@@ -183,7 +184,7 @@ export function canvasReducer(
 
     case "CREATE_NODE": {
       const withUndo = pushUndo(state);
-      const id = generateId();
+      const id = action.id ?? generateId();
       const node: CanvasNode = {
         id,
         type: action.nodeType,

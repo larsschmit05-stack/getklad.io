@@ -45,6 +45,7 @@ import {
 } from "@/lib/canvas/geometry";
 import { useAutosave } from "@/lib/canvas/hooks";
 import { measureTextNodeSize } from "@/lib/canvas/text";
+import { createClient } from "@/lib/supabase";
 
 import Background from "./canvas/Background";
 import SelectionOverlay from "./canvas/SelectionOverlay";
@@ -135,6 +136,7 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const imageClickPosRef = useRef<{ x: number; y: number } | null>(null);
+  const pendingUploadsRef = useRef(0);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [spaceDown, setSpaceDown] = useState(false);
   const [arrowPreview, setArrowPreview] = useState<{
@@ -197,8 +199,87 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
     setHasClipboard(clipboardRef.current.length > 0);
   }, []);
 
+  // Silent thumbnail capture — snapshots the current view (does NOT mutate
+  // the camera) via html-to-image and returns a small JPEG data URL. Used by
+  // the autosave hook so the projects list can show a real rasterized
+  // preview of each board. Returns null when the canvas is empty or capture
+  // fails so we don't overwrite an existing good thumbnail with garbage.
+  //
+  // We use html-to-image here (not html2canvas) because html2canvas can't
+  // parse modern CSS color functions like `lab()` / `oklch()` which Tailwind
+  // v4 and Base UI components emit. The existing PNG export avoids this by
+  // hiding all overlays via `isExporting`, but the thumbnail path runs
+  // silently with overlays still mounted.
+  const captureThumbnail = useCallback(async (): Promise<string | null> => {
+    const container = containerRef.current;
+    if (!container) {
+      return null;
+    }
+
+    const allNodes = Object.values(stateRef.current.document.nodes);
+    if (allNodes.length === 0) {
+      return null;
+    }
+
+    try {
+      const { toJpeg } = await import("html-to-image");
+      const dataUrl = await toJpeg(container, {
+        quality: 0.6,
+        pixelRatio: 0.5,
+        backgroundColor: "#f7f4ef",
+        cacheBust: true,
+        filter: (node) => {
+          // Skip any element flagged for export exclusion (toolbars, panels…)
+          if (node instanceof HTMLElement) {
+            return !node.hasAttribute("data-export-ignore");
+          }
+          return true;
+        },
+      });
+      return dataUrl;
+    } catch (err) {
+      console.error("[thumbnail] capture failed", err);
+      return null;
+    }
+  }, []);
+
   // Autosave
-  const saveStatus = useAutosave(projectId, state.document);
+  const saveStatus = useAutosave(projectId, state.document, captureThumbnail, pendingUploadsRef);
+
+  // Backfill thumbnail on mount — the autosave hook only captures on document
+  // changes, so existing projects that haven't been edited since thumbnails
+  // were introduced would show "Empty canvas" forever. On load, if the canvas
+  // has content, capture one thumbnail and persist it.
+  useEffect(() => {
+    if (!initialSnapshot || Object.keys(initialSnapshot.nodes).length === 0) {
+      return;
+    }
+    let cancelled = false;
+    // Wait for layout + fonts + images to settle before capturing
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+      const thumbnail = await captureThumbnail();
+      if (cancelled || !thumbnail) return;
+      try {
+        await fetch(`/api/canvases/${projectId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            canvasData: stateRef.current.document,
+            thumbnail,
+          }),
+        });
+      } catch {
+        // Non-fatal — will retry on next actual save
+      }
+    }, 1500);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // Intentionally runs only on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Update active style when selection changes
@@ -2024,41 +2105,84 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
   // Image upload helper
   // ---------------------------------------------------------------------------
   const createImageNodeFromFile = useCallback(
-    (file: File, worldX: number, worldY: number) => {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const src = ev.target?.result as string;
-        const img = new window.Image();
-        img.onload = () => {
-          const maxW = 400;
-          const ratio = Math.min(maxW / img.width, 1);
-          const w = img.width * ratio;
-          const h = img.height * ratio;
-          dispatch({
-            type: "CREATE_NODE",
-            nodeType: "image",
-            x: worldX - w / 2,
-            y: worldY - h / 2,
-            width: w,
-            height: h,
-            props: {
-              type: "image",
-              src,
-              alt: file.name,
-              opacity: 1,
-              fit: "contain",
-              originalWidth: img.width,
-              originalHeight: img.height,
-            },
-          });
-          dispatch({ type: "SET_TOOL", tool: "select" });
-          imageClickPosRef.current = null;
-        };
-        img.src = src;
-      };
-      reader.readAsDataURL(file);
+    async (file: File, worldX: number, worldY: number) => {
+      // Read locally first to get dimensions and show immediately
+      const localUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => resolve(ev.target?.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const img = new window.Image();
+      await new Promise<void>((resolve) => {
+        img.onload = () => resolve();
+        img.src = localUrl;
+      });
+
+      const maxW = 400;
+      const ratio = Math.min(maxW / img.width, 1);
+      const w = img.width * ratio;
+      const h = img.height * ratio;
+
+      // Place node immediately with local data URL so the user sees it right away
+      const nodeId = generateId();
+      dispatch({
+        type: "CREATE_NODE",
+        nodeType: "image",
+        id: nodeId,
+        x: worldX - w / 2,
+        y: worldY - h / 2,
+        width: w,
+        height: h,
+        props: {
+          type: "image",
+          src: localUrl,
+          alt: file.name,
+          opacity: 1,
+          fit: "contain",
+          originalWidth: img.width,
+          originalHeight: img.height,
+        },
+      });
+      dispatch({ type: "SET_TOOL", tool: "select" });
+      imageClickPosRef.current = null;
+
+      // Upload to Supabase Storage in the background and swap the src.
+      // pendingUploadsRef blocks autosave until all uploads have resolved.
+      pendingUploadsRef.current += 1;
+      try {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const ext = file.name.split(".").pop() ?? "png";
+        const path = `${user.id}/${projectId}/${crypto.randomUUID()}.${ext}`;
+        const { error: uploadError } = await supabase.storage
+          .from("canvas-images")
+          .upload(path, file, { contentType: file.type, upsert: false });
+
+        if (uploadError) {
+          console.error("[Image upload]", uploadError.message);
+          return;
+        }
+
+        const { data: { publicUrl } } = supabase.storage
+          .from("canvas-images")
+          .getPublicUrl(path);
+
+        dispatch({
+          type: "UPDATE_NODE_PROPS",
+          nodeId,
+          props: { src: publicUrl },
+        });
+      } catch (err) {
+        console.error("[Image upload]", err);
+      } finally {
+        pendingUploadsRef.current -= 1;
+      }
     },
-    []
+    [projectId]
   );
 
   // ---------------------------------------------------------------------------
