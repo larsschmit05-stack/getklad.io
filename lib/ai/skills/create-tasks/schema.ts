@@ -7,7 +7,7 @@ export const createTasksSchema = z.object({
         title: z
           .string()
           .describe(
-            "Actionable task title: verb + noun, e.g. 'Set up Postgres database'"
+            "Actionable task title starting with a verb: e.g. 'Set up Postgres database'. If a note cannot be rephrased as a verb + noun action, do NOT include it."
           ),
         description: z
           .string()
