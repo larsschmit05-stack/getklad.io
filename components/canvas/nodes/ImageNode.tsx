@@ -16,9 +16,9 @@ function ImageNode({ node, isSelected }: ImageNodeProps) {
 
   return (
     <g transform={`translate(${node.x}, ${node.y})`}>
-      {/* Use key to force re-render when fit changes */}
+      {/* Use key to force re-render when fit changes (preserveAspectRatio) */}
       <image
-        key={`${src}-${fit}`}
+        key={fit}
         href={src}
         width={node.width}
         height={node.height}

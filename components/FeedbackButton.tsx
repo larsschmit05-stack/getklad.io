@@ -41,6 +41,9 @@ export default function FeedbackButton({ variant = "floating" }: FeedbackButtonP
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
+    // Stop canvas keyboard shortcuts (tool switching, delete, etc.) from
+    // firing while the user is typing in this form.
+    e.stopPropagation();
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
       submit();

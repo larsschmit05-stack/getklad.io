@@ -858,15 +858,18 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         return;
       }
 
-      // When AI sidebar is open and user is typing in its input, block tool shortcuts
-      // but allow Escape to close and meta-key combos (Cmd+Z undo etc.) through
-      if (aiChatOpenRef.current) {
-        if (e.key === "Escape") {
-          setAiChatOpen(false);
-          e.preventDefault();
-          return;
-        }
-        // If focus is in a text input, block single-key shortcuts
+      // When AI sidebar is open, Escape closes it.
+      if (aiChatOpenRef.current && e.key === "Escape") {
+        setAiChatOpen(false);
+        e.preventDefault();
+        return;
+      }
+
+      // Block canvas shortcuts (tool switching, delete, etc.) when focus is in
+      // any external text input — e.g. feedback form, AI chat input. This is a
+      // second line of defence; components should also stopPropagation themselves.
+      // Skip this guard when actively editing a canvas node (its textarea IS the canvas).
+      if (!stateRef.current.editingNodeId) {
         const tag = (document.activeElement?.tagName ?? "").toLowerCase();
         if (tag === "textarea" || tag === "input") return;
       }
@@ -2170,6 +2173,16 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
         const { data: { publicUrl } } = supabase.storage
           .from("canvas-images")
           .getPublicUrl(path);
+
+        // Preload the remote URL before swapping so the browser has it cached
+        // and the transition from data URL is seamless (no blank flash).
+        await new Promise<void>((resolve) => {
+          const preload = new window.Image();
+          preload.crossOrigin = "anonymous";
+          preload.onload = () => resolve();
+          preload.onerror = () => resolve();
+          preload.src = publicUrl;
+        });
 
         dispatch({
           type: "UPDATE_NODE_PROPS",
