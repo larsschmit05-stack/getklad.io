@@ -2841,8 +2841,8 @@ export default function Canvas({ projectId, initialSnapshot }: CanvasProps) {
                     originalHeight: result.height,
                   },
                 });
-              } catch {
-                // Crop failed — silently cancel
+              } catch (err) {
+                console.error("Crop failed", err);
               }
               setCropMode(null);
             }}

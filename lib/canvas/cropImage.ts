@@ -33,6 +33,7 @@ export function cropImagePixels(
 ): Promise<CropResult> {
   return new Promise((resolve, reject) => {
     const img = new Image();
+    img.crossOrigin = "anonymous";
     img.onload = () => {
       const imgW = img.naturalWidth;
       const imgH = img.naturalHeight;
